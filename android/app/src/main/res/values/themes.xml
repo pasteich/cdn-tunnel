@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.CDNTunnel" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="colorPrimary">@color/clay</item>
+        <item name="colorOnPrimary">#160F09</item>
+        <item name="colorPrimaryContainer">#3A2A1C</item>
+        <item name="colorOnPrimaryContainer">@color/cream</item>
+        <item name="colorSecondary">@color/amber</item>
+        <item name="android:colorBackground">@color/bg</item>
+        <item name="colorSurface">@color/surface</item>
+        <item name="colorSurfaceVariant">@color/surface2</item>
+        <item name="colorOnSurface">@color/cream</item>
+        <item name="colorOnSurfaceVariant">@color/cream_dim</item>
+        <item name="colorOutline">#4A3A28</item>
+        <item name="android:windowBackground">@color/bg</item>
+        <item name="android:statusBarColor">@color/bg</item>
+        <item name="android:navigationBarColor">@color/bg</item>
+    </style>
+</resources>

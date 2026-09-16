@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Тёплая коричневая палитра -->
+    <color name="bg">#120D08</color>
+    <color name="surface">#1E160E</color>
+    <color name="surface2">#281E13</color>
+    <color name="clay">#C7764E</color>
+    <color name="clay_dim">#8A5A3C</color>
+    <color name="amber">#B0824F</color>
+    <color name="cream">#EBDCC9</color>
+    <color name="cream_dim">#B9A588</color>
+    <color name="danger">#D0674A</color>
+    <color name="ok">#9FB86A</color>
+    <color name="down">#C7A34E</color>
+    <color name="up">#C7764E</color>
+</resources>

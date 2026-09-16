@@ -1,0 +1,42 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.cdn.vpn'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.cdn.vpn'
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName '1.0'
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    buildTypes {
+        release { minifyEnabled false }
+        debug   { minifyEnabled false }
+    }
+
+    // Extract native libs so libtun.so lands in nativeLibraryDir with exec perms.
+    packagingOptions {
+        jniLibs {
+            useLegacyPackaging true
+        }
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'com.google.android.material:material:1.12.0'
+    implementation files('libs/t2smobile.aar')
+}

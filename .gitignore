@@ -1,0 +1,17 @@
+# Go build output
+/cdntunnel
+/cdn-host
+*.test
+
+# Android build outputs
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+*.iml
+
+# Regenerable native binary (build via README: CGO cross-compile of main.go)
+android/app/src/main/jniLibs/**/libtun.so
+
+# misc
+.DS_Store

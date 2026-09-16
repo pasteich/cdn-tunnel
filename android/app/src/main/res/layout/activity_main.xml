@@ -1,0 +1,429 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical">
+
+    <FrameLayout
+        android:id="@+id/content"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <!-- ===================== TUNNEL TAB ===================== -->
+        <androidx.core.widget.NestedScrollView
+            android:id="@+id/tab_tunnel"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:fillViewport="true">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:paddingBottom="14dp">
+                    <TextView
+                        android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="cdn_tunnel"
+                        android:fontFamily="monospace"
+                        android:textSize="18sp" android:textStyle="bold"
+                        android:textColor="?attr/colorPrimary" />
+                    <TextView
+                        android:id="@+id/tv_conn"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="● offline"
+                        android:fontFamily="monospace"
+                        android:textSize="13sp"
+                        android:textColor="?attr/colorOnSurfaceVariant" />
+                </LinearLayout>
+
+                <!-- Status card -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:background="@drawable/card_bg"
+                    android:padding="16dp"
+                    android:layout_marginBottom="16dp">
+                    <TextView
+                        android:id="@+id/tv_status"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:text="Отключено"
+                        android:textSize="20sp" android:textStyle="bold"
+                        android:textColor="?attr/colorOnSurface" />
+                    <TextView
+                        android:id="@+id/tv_status_detail"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:text="Заполните поля и нажмите «Запустить VPN»"
+                        android:textSize="13sp"
+                        android:paddingTop="2dp"
+                        android:textColor="?attr/colorOnSurfaceVariant" />
+                    <com.google.android.material.progressindicator.LinearProgressIndicator
+                        android:id="@+id/progress"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:indeterminate="true"
+                        android:visibility="gone"
+                        app:trackCornerRadius="3dp" />
+                </LinearLayout>
+
+                <TextView style="@style/Section" android:text="Подключение" />
+
+                <com.google.android.material.textfield.TextInputLayout
+                    style="@style/Field" android:hint="IP сервера CDN">
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/et_ip"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:inputType="text" android:fontFamily="monospace"
+                        android:digits="0123456789.:abcdefABCDEF"
+                        android:maxLines="1" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <com.google.android.material.textfield.TextInputLayout
+                    style="@style/Field" android:hint="Host / SNI (домен CDN)">
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/et_host"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:inputType="textUri" android:fontFamily="monospace"
+                        android:maxLines="1" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <com.google.android.material.textfield.TextInputLayout
+                    style="@style/Field" android:hint="Пароль туннеля"
+                    app:endIconMode="password_toggle">
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/et_password"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:inputType="textPassword" android:fontFamily="monospace"
+                        android:maxLines="1" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <LinearLayout style="@style/Row">
+                    <com.google.android.material.textfield.TextInputLayout
+                        style="@style/Field.Half" android:hint="Локальный порт SOCKS"
+                        android:layout_marginEnd="10dp">
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/et_port"
+                            android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:inputType="number" android:fontFamily="monospace"
+                            android:maxLines="1" />
+                    </com.google.android.material.textfield.TextInputLayout>
+                    <com.google.android.material.textfield.TextInputLayout
+                        style="@style/Field.Half" android:hint="Соединений (conns)">
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/et_conns"
+                            android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:inputType="number" android:fontFamily="monospace"
+                            android:maxLines="1" />
+                    </com.google.android.material.textfield.TextInputLayout>
+                </LinearLayout>
+
+                <LinearLayout style="@style/Row">
+                    <com.google.android.material.textfield.TextInputLayout
+                        style="@style/Field.Dropdown" android:hint="Транспорт"
+                        android:layout_width="0dp" android:layout_weight="1"
+                        android:layout_marginEnd="10dp" android:layout_marginBottom="0dp">
+                        <com.google.android.material.textfield.MaterialAutoCompleteTextView
+                            android:id="@+id/dd_transport"
+                            android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:inputType="none" android:fontFamily="monospace"
+                            android:text="chunked" />
+                    </com.google.android.material.textfield.TextInputLayout>
+                    <com.google.android.material.textfield.TextInputLayout
+                        style="@style/Field.Dropdown" android:hint="Метод (HTTP)"
+                        android:layout_width="0dp" android:layout_weight="1"
+                        android:layout_marginBottom="0dp">
+                        <com.google.android.material.textfield.MaterialAutoCompleteTextView
+                            android:id="@+id/dd_method"
+                            android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:inputType="none" android:fontFamily="monospace"
+                            android:text="post" />
+                    </com.google.android.material.textfield.TextInputLayout>
+                </LinearLayout>
+                <TextView
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="stream — ниже пинг, но нужен CDN без буферизации тела; иначе авто-откат на chunked"
+                    android:textSize="11sp" android:textColor="?attr/colorOnSurfaceVariant"
+                    android:paddingTop="4dp" android:paddingBottom="10dp" />
+
+                <LinearLayout
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:gravity="center_vertical"
+                    android:paddingVertical="4dp">
+                    <LinearLayout
+                        android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:orientation="vertical">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="UDP через туннель"
+                            android:textColor="?attr/colorOnSurface" android:textSize="15sp" />
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="QUIC / игры по UDP (иначе DNS-over-TCP)"
+                            android:textColor="?attr/colorOnSurfaceVariant" android:textSize="12sp" />
+                    </LinearLayout>
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/sw_udp"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content" />
+                </LinearLayout>
+
+                <!-- Advanced (collapsible) -->
+                <LinearLayout
+                    android:id="@+id/hdr_advanced"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:gravity="center_vertical"
+                    android:paddingVertical="12dp" android:clickable="true" android:focusable="true">
+                    <TextView
+                        android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Дополнительно"
+                        android:textAllCaps="true" android:textStyle="bold"
+                        android:textSize="13sp" android:letterSpacing="0.08"
+                        android:alpha="0.6" android:textColor="?attr/colorOnSurface" />
+                    <TextView android:id="@+id/chev_advanced"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="▸" android:textColor="?attr/colorPrimary" android:textSize="16sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/box_advanced"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="vertical" android:visibility="gone">
+
+                    <LinearLayout style="@style/Row">
+                        <com.google.android.material.textfield.TextInputLayout
+                            style="@style/Field.Half" android:hint="DNS сервер"
+                            android:layout_marginEnd="10dp">
+                            <com.google.android.material.textfield.TextInputEditText
+                                android:id="@+id/et_dns"
+                                android:layout_width="match_parent" android:layout_height="wrap_content"
+                                android:inputType="text" android:fontFamily="monospace"
+                                android:maxLines="1" />
+                        </com.google.android.material.textfield.TextInputLayout>
+                        <com.google.android.material.textfield.TextInputLayout
+                            style="@style/Field.Half" android:hint="MTU">
+                            <com.google.android.material.textfield.TextInputEditText
+                                android:id="@+id/et_mtu"
+                                android:layout_width="match_parent" android:layout_height="wrap_content"
+                                android:inputType="number" android:fontFamily="monospace"
+                                android:maxLines="1" />
+                        </com.google.android.material.textfield.TextInputLayout>
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:orientation="horizontal" android:gravity="center_vertical"
+                        android:paddingVertical="4dp">
+                        <TextView
+                            android:layout_width="0dp" android:layout_height="wrap_content"
+                            android:layout_weight="1" android:text="Блокировать IPv6 (AAAA)"
+                            android:textColor="?attr/colorOnSurface" android:textSize="15sp" />
+                        <com.google.android.material.materialswitch.MaterialSwitch
+                            android:id="@+id/sw_block_aaaa"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:orientation="horizontal" android:gravity="center_vertical"
+                        android:paddingVertical="4dp">
+                        <LinearLayout
+                            android:layout_width="0dp" android:layout_height="wrap_content"
+                            android:layout_weight="1" android:orientation="vertical">
+                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                                android:text="Fast Open (0-RTT connect)"
+                                android:textColor="?attr/colorOnSurface" android:textSize="15sp" />
+                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                                android:text="убирает 1 RTT на соединение"
+                                android:textColor="?attr/colorOnSurfaceVariant" android:textSize="12sp" />
+                        </LinearLayout>
+                        <com.google.android.material.materialswitch.MaterialSwitch
+                            android:id="@+id/sw_fastopen"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:orientation="horizontal" android:gravity="center_vertical"
+                        android:paddingVertical="4dp">
+                        <TextView
+                            android:layout_width="0dp" android:layout_height="wrap_content"
+                            android:layout_weight="1" android:text="Подробный лог (debug)"
+                            android:textColor="?attr/colorOnSurface" android:textSize="15sp" />
+                        <com.google.android.material.materialswitch.MaterialSwitch
+                            android:id="@+id/sw_debug"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_toggle"
+                    android:layout_width="match_parent" android:layout_height="56dp"
+                    android:layout_marginTop="18dp"
+                    android:text="Запустить VPN"
+                    android:textSize="16sp" android:textStyle="bold"
+                    app:cornerRadius="14dp" />
+
+            </LinearLayout>
+        </androidx.core.widget.NestedScrollView>
+
+        <!-- ===================== TRAFFIC TAB ===================== -->
+        <androidx.core.widget.NestedScrollView
+            android:id="@+id/tab_traffic"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:fillViewport="true"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="vertical" android:padding="16dp">
+
+                <TextView
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="cdn_tunnel"
+                    android:fontFamily="monospace" android:textSize="18sp" android:textStyle="bold"
+                    android:textColor="?attr/colorPrimary" android:paddingBottom="14dp" />
+
+                <!-- Download card -->
+                <LinearLayout
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="vertical" android:background="@drawable/card_bg"
+                    android:padding="18dp" android:layout_marginBottom="14dp">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="↓ ЗАГРУЗКА" android:textStyle="bold" android:letterSpacing="0.08"
+                        android:textSize="13sp" android:textColor="@color/down" />
+                    <TextView android:id="@+id/tv_down_total"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="0 B" android:textSize="34sp" android:textStyle="bold"
+                        android:fontFamily="monospace" android:textColor="?attr/colorOnSurface" />
+                    <TextView android:id="@+id/tv_down_rate"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="0 B/s" android:textSize="15sp"
+                        android:fontFamily="monospace" android:textColor="?attr/colorOnSurfaceVariant" />
+                </LinearLayout>
+
+                <!-- Upload card -->
+                <LinearLayout
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="vertical" android:background="@drawable/card_bg"
+                    android:padding="18dp" android:layout_marginBottom="14dp">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="↑ ОТДАЧА" android:textStyle="bold" android:letterSpacing="0.08"
+                        android:textSize="13sp" android:textColor="@color/up" />
+                    <TextView android:id="@+id/tv_up_total"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="0 B" android:textSize="34sp" android:textStyle="bold"
+                        android:fontFamily="monospace" android:textColor="?attr/colorOnSurface" />
+                    <TextView android:id="@+id/tv_up_rate"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="0 B/s" android:textSize="15sp"
+                        android:fontFamily="monospace" android:textColor="?attr/colorOnSurfaceVariant" />
+                </LinearLayout>
+
+                <!-- small stats row -->
+                <LinearLayout
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+                    <LinearLayout
+                        android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:orientation="vertical"
+                        android:background="@drawable/card_bg" android:padding="14dp"
+                        android:layout_marginEnd="7dp">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Соединения" android:textSize="12sp"
+                            android:textColor="?attr/colorOnSurfaceVariant" />
+                        <TextView android:id="@+id/tv_conns"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="0" android:textSize="22sp" android:textStyle="bold"
+                            android:fontFamily="monospace" android:textColor="?attr/colorOnSurface" />
+                    </LinearLayout>
+                    <LinearLayout
+                        android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:orientation="vertical"
+                        android:background="@drawable/card_bg" android:padding="14dp"
+                        android:layout_marginStart="7dp">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Пинг (RTT)" android:textSize="12sp"
+                            android:textColor="?attr/colorOnSurfaceVariant" />
+                        <TextView android:id="@+id/tv_rtt"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="— ms" android:textSize="22sp" android:textStyle="bold"
+                            android:fontFamily="monospace" android:textColor="?attr/colorOnSurface" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:background="@drawable/card_bg" android:padding="14dp"
+                    android:layout_marginTop="14dp">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="UDP ↓ / ↑" android:textSize="12sp"
+                        android:textColor="?attr/colorOnSurfaceVariant" />
+                    <TextView android:id="@+id/tv_udp"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="0 B / 0 B" android:textSize="18sp" android:textStyle="bold"
+                        android:fontFamily="monospace" android:textColor="?attr/colorOnSurface" />
+                </LinearLayout>
+
+            </LinearLayout>
+        </androidx.core.widget.NestedScrollView>
+
+        <!-- ===================== LOG TAB ===================== -->
+        <LinearLayout
+            android:id="@+id/tab_log"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:padding="12dp"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:gravity="center_vertical"
+                android:paddingBottom="8dp">
+                <TextView
+                    android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:text="Журнал"
+                    android:textStyle="bold" android:textSize="16sp"
+                    android:textColor="?attr/colorPrimary" />
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_clear"
+                    style="@style/Widget.Material3.Button.TextButton"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Очистить" />
+            </LinearLayout>
+
+            <ScrollView
+                android:id="@+id/log_scroll"
+                android:layout_width="match_parent" android:layout_height="0dp"
+                android:layout_weight="1"
+                android:background="@drawable/card_bg"
+                android:padding="10dp">
+                <TextView
+                    android:id="@+id/tv_log"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:fontFamily="monospace" android:textSize="11sp"
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    android:textIsSelectable="true" />
+            </ScrollView>
+        </LinearLayout>
+
+    </FrameLayout>
+
+    <com.google.android.material.bottomnavigation.BottomNavigationView
+        android:id="@+id/bottom_nav"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@color/surface"
+        app:menu="@menu/bottom_nav" />
+
+</LinearLayout>
