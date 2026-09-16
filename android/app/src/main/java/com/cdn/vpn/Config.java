@@ -23,6 +23,16 @@ public class Config {
     public boolean blockAAAA = true;
     public boolean debug = false;
 
+    // --- деплой серверной части по SSH (вкладка «Сервер») ---
+    public String sshHost = "";
+    public int sshPort = 22;
+    public String sshUser = "root";
+    public String sshPass = "";
+    public String sshKey = "";              // приватный ключ (PEM); если не пусто — вход по ключу
+    public String serverAddr = ":80";       // -addr на сервере
+    public String serverMethod = "both";    // -method на сервере (post|get|both)
+    public int restartMin = 0;              // рестарт сервиса каждые N минут (0 = не рестартить)
+
     private static final String PREFS = "cdntunnel";
 
     public static Config load(Context ctx) {
@@ -41,6 +51,14 @@ public class Config {
         c.mtu = p.getInt("mtu", c.mtu);
         c.blockAAAA = p.getBoolean("blockAAAA", c.blockAAAA);
         c.debug = p.getBoolean("debug", c.debug);
+        c.sshHost = p.getString("sshHost", c.sshHost);
+        c.sshPort = p.getInt("sshPort", c.sshPort);
+        c.sshUser = p.getString("sshUser", c.sshUser);
+        c.sshPass = p.getString("sshPass", c.sshPass);
+        c.sshKey = p.getString("sshKey", c.sshKey);
+        c.serverAddr = p.getString("serverAddr", c.serverAddr);
+        c.serverMethod = p.getString("serverMethod", c.serverMethod);
+        c.restartMin = p.getInt("restartMin", c.restartMin);
         return c;
     }
 
@@ -59,6 +77,14 @@ public class Config {
         e.putInt("mtu", mtu);
         e.putBoolean("blockAAAA", blockAAAA);
         e.putBoolean("debug", debug);
+        e.putString("sshHost", sshHost);
+        e.putInt("sshPort", sshPort);
+        e.putString("sshUser", sshUser);
+        e.putString("sshPass", sshPass);
+        e.putString("sshKey", sshKey);
+        e.putString("serverAddr", serverAddr);
+        e.putString("serverMethod", serverMethod);
+        e.putInt("restartMin", restartMin);
         e.apply();
     }
 

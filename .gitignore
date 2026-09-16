@@ -15,3 +15,7 @@ android/app/src/main/jniLibs/**/libtun.so
 
 # misc
 .DS_Store
+
+# Regenerable Linux server binaries (build: GOOS=linux go build; see android/README)
+android/app/src/main/assets/server/cdn-tunnel-amd64
+android/app/src/main/assets/server/cdn-tunnel-arm64

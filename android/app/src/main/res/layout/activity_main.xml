@@ -377,6 +377,136 @@
             </LinearLayout>
         </androidx.core.widget.NestedScrollView>
 
+        <!-- ===================== SERVER TAB ===================== -->
+        <androidx.core.widget.NestedScrollView
+            android:id="@+id/tab_server"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:fillViewport="true"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="vertical" android:padding="16dp">
+
+                <TextView
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="автодеплой сервера"
+                    android:fontFamily="monospace" android:textSize="18sp" android:textStyle="bold"
+                    android:textColor="?attr/colorPrimary" android:paddingBottom="4dp" />
+                <TextView
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="Заливает бинарь на VPS по SSH и ставит systemd-сервис (автозапуск при ребуте). Пароль туннеля берётся со вкладки «Туннель»."
+                    android:textSize="12sp" android:textColor="?attr/colorOnSurfaceVariant"
+                    android:paddingBottom="14dp" />
+
+                <TextView style="@style/Section" android:text="VPS · SSH" />
+
+                <com.google.android.material.textfield.TextInputLayout
+                    style="@style/Field" android:hint="Адрес VPS (IP или домен)">
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/et_ssh_host"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:inputType="textUri" android:fontFamily="monospace" android:maxLines="1" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <LinearLayout style="@style/Row">
+                    <com.google.android.material.textfield.TextInputLayout
+                        style="@style/Field.Half" android:hint="SSH-порт" android:layout_marginEnd="10dp">
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/et_ssh_port"
+                            android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:inputType="number" android:fontFamily="monospace" android:maxLines="1" />
+                    </com.google.android.material.textfield.TextInputLayout>
+                    <com.google.android.material.textfield.TextInputLayout
+                        style="@style/Field.Half" android:hint="Пользователь">
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/et_ssh_user"
+                            android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:inputType="text" android:fontFamily="monospace" android:maxLines="1" />
+                    </com.google.android.material.textfield.TextInputLayout>
+                </LinearLayout>
+
+                <com.google.android.material.textfield.TextInputLayout
+                    style="@style/Field" android:hint="SSH-пароль"
+                    app:endIconMode="password_toggle">
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/et_ssh_pass"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:inputType="textPassword" android:fontFamily="monospace" android:maxLines="1" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <TextView style="@style/Section" android:text="Сервер туннеля" />
+
+                <LinearLayout style="@style/Row">
+                    <com.google.android.material.textfield.TextInputLayout
+                        style="@style/Field.Half" android:hint="Слушать (-addr)" android:layout_marginEnd="10dp">
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/et_server_addr"
+                            android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:inputType="text" android:fontFamily="monospace" android:maxLines="1" />
+                    </com.google.android.material.textfield.TextInputLayout>
+                    <com.google.android.material.textfield.TextInputLayout
+                        style="@style/Field.Dropdown" android:hint="Метод (сервер)"
+                        android:layout_width="0dp" android:layout_weight="1" android:layout_marginBottom="10dp">
+                        <com.google.android.material.textfield.MaterialAutoCompleteTextView
+                            android:id="@+id/dd_server_method"
+                            android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:inputType="none" android:fontFamily="monospace" android:text="both" />
+                    </com.google.android.material.textfield.TextInputLayout>
+                </LinearLayout>
+
+                <com.google.android.material.textfield.TextInputLayout
+                    style="@style/Field" android:hint="Рестарт каждые N минут (0 = не рестартить)">
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/et_restart_min"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:inputType="number" android:fontFamily="monospace" android:maxLines="1" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:layout_marginTop="6dp">
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_deploy"
+                        android:layout_width="0dp" android:layout_weight="1" android:layout_height="52dp"
+                        android:layout_marginEnd="8dp"
+                        android:text="Развернуть" android:textStyle="bold"
+                        app:cornerRadius="14dp" />
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_check"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="wrap_content" android:layout_height="52dp"
+                        android:text="Статус" app:cornerRadius="14dp" />
+                </LinearLayout>
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_uninstall"
+                    style="@style/Widget.Material3.Button.TextButton"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:layout_gravity="end"
+                    android:text="Удалить с сервера" android:textColor="@color/danger" />
+
+                <com.google.android.material.progressindicator.LinearProgressIndicator
+                    android:id="@+id/deploy_progress"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp" android:indeterminate="true"
+                    android:visibility="gone" app:trackCornerRadius="3dp" />
+
+                <ScrollView
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp" android:background="@drawable/card_bg"
+                    android:padding="10dp" android:minHeight="120dp">
+                    <TextView
+                        android:id="@+id/tv_deploy"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:text="Заполните поля VPS и нажмите «Развернуть»."
+                        android:fontFamily="monospace" android:textSize="11sp"
+                        android:textColor="?attr/colorOnSurfaceVariant" android:textIsSelectable="true" />
+                </ScrollView>
+
+            </LinearLayout>
+        </androidx.core.widget.NestedScrollView>
+
         <!-- ===================== LOG TAB ===================== -->
         <LinearLayout
             android:id="@+id/tab_log"

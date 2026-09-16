@@ -72,3 +72,26 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 только при изменении `~/android-dev/t2smobile/t2s.go`.
 
 Собрано и протестировано: Redmi (rubypro), Android 14, только arm64-v8a.
+
+
+## Автодеплой сервера (вкладка «Сервер»)
+Разворачивает серверную часть на VPS по SSH прямо из телефона:
+1. поля: адрес VPS, SSH-порт, пользователь (root), SSH-пароль; `-addr` (по умолч. `:80`),
+   метод сервера (`both`/`post`/`get`), «рестарт каждые N минут» (0 = не рестартить);
+2. **Развернуть** → SSH → определяет arch (`uname -m`, amd64/arm64) → заливает бинарь в
+   `/usr/local/bin/cdn-tunnel` → пишет systemd-юнит `cdn-tunnel.service`
+   (`ExecStart=… -server -addr … -method … -password …`, `Restart=always`, автозапуск при ребуте;
+   при N>0 добавляется `RuntimeMaxSec=N*60` — сервис перезапускается каждые N минут) →
+   `enable --now` → проверяет статус/лог;
+3. **Статус** — читает `systemctl is-active` + `journalctl`; **Удалить** — сносит сервис и бинарь.
+
+Пароль туннеля берётся со вкладки «Туннель» — сервер и клиент получают **один и тот же** пароль.
+Требуется Linux с systemd и root-доступ по SSH.
+
+### Пересборка серверных бинарей (кладутся в `assets/server/`)
+```bash
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" \
+  -o android/app/src/main/assets/server/cdn-tunnel-amd64 .
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w" \
+  -o android/app/src/main/assets/server/cdn-tunnel-arm64 .
+```

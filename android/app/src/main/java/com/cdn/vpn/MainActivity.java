@@ -2,6 +2,7 @@ package com.cdn.vpn;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
@@ -37,7 +38,14 @@ public class MainActivity extends AppCompatActivity implements TunState.Listener
     private LinearProgressIndicator progress;
     private ScrollView logScroll;
     private View boxAdvanced, hdrAdvanced;
-    private View tabTunnel, tabTraffic, tabLog;
+    private View tabTunnel, tabTraffic, tabLog, tabServer;
+    // server tab
+    private TextInputEditText etSshHost, etSshPort, etSshUser, etSshPass, etServerAddr, etRestartMin;
+    private MaterialAutoCompleteTextView ddServerMethod;
+    private MaterialButton btnDeploy, btnCheck, btnUninstall;
+    private LinearProgressIndicator deployProgress;
+    private TextView tvDeploy;
+    private volatile boolean deploying = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -78,6 +86,18 @@ public class MainActivity extends AppCompatActivity implements TunState.Listener
         tabTunnel = findViewById(R.id.tab_tunnel);
         tabTraffic = findViewById(R.id.tab_traffic);
         tabLog = findViewById(R.id.tab_log);
+        tabServer = findViewById(R.id.tab_server);
+
+        etSshHost = f(R.id.et_ssh_host); etSshPort = f(R.id.et_ssh_port);
+        etSshUser = f(R.id.et_ssh_user); etSshPass = f(R.id.et_ssh_pass);
+        etServerAddr = f(R.id.et_server_addr); etRestartMin = f(R.id.et_restart_min);
+        ddServerMethod = findViewById(R.id.dd_server_method);
+        ddServerMethod.setSimpleItems(new String[]{"both", "post", "get"});
+        btnDeploy = findViewById(R.id.btn_deploy);
+        btnCheck = findViewById(R.id.btn_check);
+        btnUninstall = findViewById(R.id.btn_uninstall);
+        deployProgress = findViewById(R.id.deploy_progress);
+        tvDeploy = findViewById(R.id.tv_deploy);
 
         populate(Config.load(this));
         renderLogs();
@@ -87,6 +107,7 @@ public class MainActivity extends AppCompatActivity implements TunState.Listener
         bn.setOnItemSelectedListener(item -> {
             int id = item.getItemId();
             tabTunnel.setVisibility(id == R.id.nav_tunnel ? View.VISIBLE : View.GONE);
+            tabServer.setVisibility(id == R.id.nav_server ? View.VISIBLE : View.GONE);
             tabTraffic.setVisibility(id == R.id.nav_traffic ? View.VISIBLE : View.GONE);
             tabLog.setVisibility(id == R.id.nav_log ? View.VISIBLE : View.GONE);
             if (id == R.id.nav_log) renderLogs();
@@ -98,6 +119,9 @@ public class MainActivity extends AppCompatActivity implements TunState.Listener
             if (active) stopVpn(); else startVpn();
         });
         btnClear.setOnClickListener(v -> { TunState.clear(); tvLog.setText(""); });
+        btnDeploy.setOnClickListener(v -> startDeploy());
+        btnCheck.setOnClickListener(v -> checkServer());
+        btnUninstall.setOnClickListener(v -> uninstallServer());
         hdrAdvanced.setOnClickListener(v -> {
             boolean show = boxAdvanced.getVisibility() != View.VISIBLE;
             boxAdvanced.setVisibility(show ? View.VISIBLE : View.GONE);
@@ -137,6 +161,13 @@ public class MainActivity extends AppCompatActivity implements TunState.Listener
         ddMethod.setText("get".equalsIgnoreCase(c.method) ? "get" : "post", false);
         ddTransport.setText("stream".equalsIgnoreCase(c.transport) ? "stream" : "chunked", false);
         swFastopen.setChecked(c.fastopen);
+        etSshHost.setText(c.sshHost);
+        etSshPort.setText(String.valueOf(c.sshPort));
+        etSshUser.setText(c.sshUser);
+        etSshPass.setText(c.sshPass);
+        etServerAddr.setText(c.serverAddr);
+        etRestartMin.setText(String.valueOf(c.restartMin));
+        ddServerMethod.setText(c.serverMethod == null ? "both" : c.serverMethod, false);
     }
 
     private Config collect() {
@@ -154,6 +185,13 @@ public class MainActivity extends AppCompatActivity implements TunState.Listener
         c.method = ddMethod.getText() != null && ddMethod.getText().toString().trim().equalsIgnoreCase("get") ? "get" : "post";
         c.transport = ddTransport.getText() != null && ddTransport.getText().toString().trim().equalsIgnoreCase("stream") ? "stream" : "chunked";
         c.fastopen = swFastopen.isChecked();
+        c.sshHost = etSshHost.getText() == null ? "" : etSshHost.getText().toString().trim();
+        c.sshPort = intOf(etSshPort, c.sshPort);
+        c.sshUser = txt(etSshUser, c.sshUser);
+        c.sshPass = etSshPass.getText() == null ? "" : etSshPass.getText().toString();
+        c.serverAddr = txt(etServerAddr, c.serverAddr);
+        c.restartMin = intOf(etRestartMin, 0);
+        c.serverMethod = ddServerMethod.getText() == null ? "both" : ddServerMethod.getText().toString().trim();
         return c;
     }
 
@@ -190,6 +228,80 @@ public class MainActivity extends AppCompatActivity implements TunState.Listener
             TunState.log("[ui] запрос VPN отклонён пользователем");
         }
     }
+
+
+    // ---------- server deploy ----------
+
+    private final DeployManager.Cb NOOP_CB = new DeployManager.Cb() {
+        public void step(int i, int t, String n, String st, String d) {}
+        public void done(boolean ok, String s) {}
+    };
+
+    private void startDeploy() {
+        Config c = collect(); c.save(this);
+        if (c.sshHost == null || c.sshHost.isEmpty()) { tvDeploy.setText("Укажите адрес VPS."); return; }
+        if (c.password == null || c.password.isEmpty()) {
+            tvDeploy.setText("Сначала задайте пароль туннеля на вкладке «Туннель» — он уйдёт на сервер.");
+            return;
+        }
+        if (deploying) return;
+        deploying = true; setDeployBusy(true);
+        tvDeploy.setText("→ Развёртывание на " + c.sshUser + "@" + c.sshHost + ":" + c.sshPort + "\n\n");
+        new DeployManager(this, c, new DeployManager.Cb() {
+            public void step(int idx, int total, String name, String state, String detail) {
+                runOnUiThread(() -> {
+                    String mark = state.equals("ok") ? "✓" : state.equals("fail") ? "✗" : "…";
+                    appendDeploy(mark + " [" + (idx + 1) + "/" + total + "] " + name
+                            + (detail == null || detail.isEmpty() ? "" : " — " + detail) + "\n");
+                });
+            }
+            public void done(boolean ok, String summary) {
+                runOnUiThread(() -> {
+                    appendDeploy("\n" + (ok ? "✓ " : "✗ ") + summary + "\n");
+                    deploying = false; setDeployBusy(false);
+                });
+            }
+        }).start();
+    }
+
+    private void checkServer() {
+        Config c = collect(); c.save(this);
+        if (c.sshHost == null || c.sshHost.isEmpty()) { tvDeploy.setText("Укажите адрес VPS."); return; }
+        setDeployBusy(true);
+        tvDeploy.setText("→ Проверка статуса…\n");
+        new DeployManager(this, c, NOOP_CB).checkServer((active, text) ->
+                runOnUiThread(() -> { tvDeploy.setText(text); setDeployBusy(false); }));
+    }
+
+    private void uninstallServer() {
+        Config c = collect(); c.save(this);
+        if (c.sshHost == null || c.sshHost.isEmpty()) { tvDeploy.setText("Укажите адрес VPS."); return; }
+        new AlertDialog.Builder(this)
+                .setTitle("Удалить сервер?")
+                .setMessage("Остановит и удалит сервис и бинарь с VPS.")
+                .setPositiveButton("Удалить", (d, w) -> {
+                    setDeployBusy(true);
+                    tvDeploy.setText("→ Удаление…\n\n");
+                    new DeployManager(this, c, new DeployManager.Cb() {
+                        public void step(int idx, int total, String name, String state, String detail) {
+                            runOnUiThread(() -> appendDeploy((state.equals("ok") ? "✓ " : state.equals("fail") ? "✗ " : "… ")
+                                    + name + (detail == null || detail.isEmpty() ? "" : " — " + detail) + "\n"));
+                        }
+                        public void done(boolean ok, String summary) {
+                            runOnUiThread(() -> { appendDeploy("\n" + summary + "\n"); setDeployBusy(false); });
+                        }
+                    }).uninstall();
+                })
+                .setNegativeButton("Отмена", null)
+                .show();
+    }
+
+    private void setDeployBusy(boolean b) {
+        deployProgress.setVisibility(b ? View.VISIBLE : View.GONE);
+        btnDeploy.setEnabled(!b); btnCheck.setEnabled(!b); btnUninstall.setEnabled(!b);
+    }
+
+    private void appendDeploy(String s) { tvDeploy.append(s); }
 
     // ---------- TunState.Listener ----------
 
