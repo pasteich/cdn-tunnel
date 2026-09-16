@@ -165,8 +165,11 @@ public class DeployManager {
         e.append(REMOTE_BIN).append(" -server");
         e.append(" -addr ").append(cfg.serverAddr == null || cfg.serverAddr.isEmpty() ? ":80" : cfg.serverAddr);
         e.append(" -method ").append(cfg.serverMethod == null || cfg.serverMethod.isEmpty() ? "both" : cfg.serverMethod);
-        if (cfg.password != null && !cfg.password.isEmpty()) {
-            e.append(" -password \"").append(esc(cfg.password)).append("\"");
+        // Пароль сервера: явно заданный в поле «Пароль сервера», иначе пароль клиента.
+        String pw = (cfg.serverPassword != null && !cfg.serverPassword.isEmpty())
+                ? cfg.serverPassword : cfg.password;
+        if (pw != null && !pw.isEmpty()) {
+            e.append(" -password \"").append(esc(pw)).append("\"");
         }
 
         StringBuilder u = new StringBuilder();

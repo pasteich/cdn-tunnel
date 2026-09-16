@@ -40,7 +40,7 @@ public class MainActivity extends AppCompatActivity implements TunState.Listener
     private View boxAdvanced, hdrAdvanced;
     private View tabTunnel, tabTraffic, tabLog, tabServer;
     // server tab
-    private TextInputEditText etSshHost, etSshPort, etSshUser, etSshPass, etServerAddr, etRestartMin;
+    private TextInputEditText etSshHost, etSshPort, etSshUser, etSshPass, etServerAddr, etServerPass, etRestartMin;
     private MaterialAutoCompleteTextView ddServerMethod;
     private MaterialButton btnDeploy, btnCheck, btnUninstall;
     private LinearProgressIndicator deployProgress;
@@ -91,6 +91,7 @@ public class MainActivity extends AppCompatActivity implements TunState.Listener
         etSshHost = f(R.id.et_ssh_host); etSshPort = f(R.id.et_ssh_port);
         etSshUser = f(R.id.et_ssh_user); etSshPass = f(R.id.et_ssh_pass);
         etServerAddr = f(R.id.et_server_addr); etRestartMin = f(R.id.et_restart_min);
+        etServerPass = f(R.id.et_server_pass);
         ddServerMethod = findViewById(R.id.dd_server_method);
         ddServerMethod.setSimpleItems(new String[]{"both", "post", "get"});
         btnDeploy = findViewById(R.id.btn_deploy);
@@ -166,6 +167,7 @@ public class MainActivity extends AppCompatActivity implements TunState.Listener
         etSshUser.setText(c.sshUser);
         etSshPass.setText(c.sshPass);
         etServerAddr.setText(c.serverAddr);
+        etServerPass.setText(c.serverPassword);
         etRestartMin.setText(String.valueOf(c.restartMin));
         ddServerMethod.setText(c.serverMethod == null ? "both" : c.serverMethod, false);
     }
@@ -192,6 +194,7 @@ public class MainActivity extends AppCompatActivity implements TunState.Listener
         c.serverAddr = txt(etServerAddr, c.serverAddr);
         c.restartMin = intOf(etRestartMin, 0);
         c.serverMethod = ddServerMethod.getText() == null ? "both" : ddServerMethod.getText().toString().trim();
+        c.serverPassword = etServerPass.getText() == null ? "" : etServerPass.getText().toString();
         return c;
     }
 
@@ -240,8 +243,10 @@ public class MainActivity extends AppCompatActivity implements TunState.Listener
     private void startDeploy() {
         Config c = collect(); c.save(this);
         if (c.sshHost == null || c.sshHost.isEmpty()) { tvDeploy.setText("Укажите адрес VPS."); return; }
-        if (c.password == null || c.password.isEmpty()) {
-            tvDeploy.setText("Сначала задайте пароль туннеля на вкладке «Туннель» — он уйдёт на сервер.");
+        boolean noPw = (c.serverPassword == null || c.serverPassword.isEmpty())
+                && (c.password == null || c.password.isEmpty());
+        if (noPw) {
+            tvDeploy.setText("Задайте «Пароль сервера» здесь (или пароль туннеля на вкладке «Туннель»).");
             return;
         }
         if (deploying) return;

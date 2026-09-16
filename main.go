@@ -27,7 +27,7 @@ import (
 // Туннель TCP/UDP-трафика через CDN одним файлом.
 //
 //	origin:  go run main.go -server
-//	клиент:  go run main.go -client -ip 151.236.109.225 -host u8t.fun -listen 127.0.0.1:8090
+//	клиент:  go run main.go -client -ip <IP_CDN> -host <cdn.domain> -listen 127.0.0.1:8090
 //
 // Клиент поднимает локальный SOCKS5; трафик идёт через CDN, реальные коннекты
 // делает сервер (исходящий IP = IP сервера). Транспорт: вниз — длинный chunked
@@ -39,7 +39,7 @@ func main() {
 		addr      = flag.String("addr", ":80", "адрес прослушивания сервера (режим -server)")
 		listen    = flag.String("listen", "127.0.0.1:8090", "адрес локального SOCKS5 (режим -client)")
 		ip        = flag.String("ip", "151.236.109.225", "IP CDN (режим -client)")
-		host      = flag.String("host", "u8t.fun", "Host/SNI для CDN (режим -client)")
+		host      = flag.String("host", "", "Host/SNI для CDN (режим -client)")
 		conns     = flag.Int("conns", 8, "число TCP-соединений к CDN (пул, убирает HoL-блокировку)")
 		udp       = flag.Bool("udp", true, "включить UDP ASSOCIATE (DNS, QUIC и прочий UDP через туннель)")
 		pass      = flag.String("password", "", "пароль доступа к туннелю (должен совпадать на -server и -client; пусто = без пароля)")

@@ -457,6 +457,20 @@
                 </LinearLayout>
 
                 <com.google.android.material.textfield.TextInputLayout
+                    style="@style/Field" android:hint="Пароль сервера (-password)"
+                    app:endIconMode="password_toggle">
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/et_server_pass"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:inputType="textPassword" android:fontFamily="monospace" android:maxLines="1" />
+                </com.google.android.material.textfield.TextInputLayout>
+                <TextView
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="Должен совпадать с паролем на вкладке «Туннель». Пусто — возьмётся пароль клиента."
+                    android:textSize="11sp" android:textColor="?attr/colorOnSurfaceVariant"
+                    android:paddingBottom="10dp" />
+
+                <com.google.android.material.textfield.TextInputLayout
                     style="@style/Field" android:hint="Рестарт каждые N минут (0 = не рестартить)">
                     <com.google.android.material.textfield.TextInputEditText
                         android:id="@+id/et_restart_min"

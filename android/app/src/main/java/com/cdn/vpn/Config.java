@@ -8,7 +8,7 @@ import android.content.SharedPreferences;
 public class Config {
     // --- tunnel client (main.go -client) ---
     public String ip = "151.236.109.225";   // -ip   : IP CDN
-    public String host = "u8t.fun";          // -host : Host/SNI
+    public String host = "";                  // -host : Host/SNI (заполните свой)
     public String password = "";             // -password
     public int port = 8090;                  // -listen 127.0.0.1:<port>
     public int conns = 8;                    // -conns
@@ -31,6 +31,7 @@ public class Config {
     public String sshKey = "";              // приватный ключ (PEM); если не пусто — вход по ключу
     public String serverAddr = ":80";       // -addr на сервере
     public String serverMethod = "both";    // -method на сервере (post|get|both)
+    public String serverPassword = "";      // -password на сервере (если пусто — берётся пароль клиента)
     public int restartMin = 0;              // рестарт сервиса каждые N минут (0 = не рестартить)
 
     private static final String PREFS = "cdntunnel";
@@ -58,6 +59,7 @@ public class Config {
         c.sshKey = p.getString("sshKey", c.sshKey);
         c.serverAddr = p.getString("serverAddr", c.serverAddr);
         c.serverMethod = p.getString("serverMethod", c.serverMethod);
+        c.serverPassword = p.getString("serverPassword", c.serverPassword);
         c.restartMin = p.getInt("restartMin", c.restartMin);
         return c;
     }
@@ -84,6 +86,7 @@ public class Config {
         e.putString("sshKey", sshKey);
         e.putString("serverAddr", serverAddr);
         e.putString("serverMethod", serverMethod);
+        e.putString("serverPassword", serverPassword);
         e.putInt("restartMin", restartMin);
         e.apply();
     }
