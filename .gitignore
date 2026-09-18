@@ -19,3 +19,6 @@ android/app/src/main/jniLibs/**/libtun.so
 # Regenerable Linux server binaries (build: GOOS=linux go build; see android/README)
 android/app/src/main/assets/server/cdn-tunnel-amd64
 android/app/src/main/assets/server/cdn-tunnel-arm64
+
+# Посторонняя сборка пакета (AUR), не часть проекта
+/xray-bin/

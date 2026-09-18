@@ -130,7 +130,8 @@ public class DeployManager {
             Exec un = exec(session, "cat > " + UNIT_PATH + " && echo OK", buildUnit().getBytes("UTF-8"));
             if (un.code != 0 || !un.out.contains("OK")) { fail(3, total, STEP_NAMES[3], trim(un)); return; }
             String rst = cfg.restartMin > 0 ? (", рестарт каждые " + cfg.restartMin + " мин") : "";
-            cb.step(3, total, STEP_NAMES[3], "ok", UNIT_PATH + rst);
+            String lim = cfg.serverUsers > 0 ? (", лимит " + cfg.serverUsers + " польз.") : ", без лимита польз.";
+            cb.step(3, total, STEP_NAMES[3], "ok", UNIT_PATH + rst + lim);
 
             cb.step(4, total, STEP_NAMES[4], "run", "daemon-reload + enable --now");
             Exec en = exec(session, "systemctl daemon-reload && systemctl enable --now " + SERVICE
@@ -145,7 +146,8 @@ public class DeployManager {
             boolean listening = logs.contains("слушает") || logs.contains("tunnel server") || logs.contains("Приём данных");
             if ("active".equals(active) && listening) {
                 cb.step(5, total, STEP_NAMES[5], "ok", "active · сервер слушает");
-                cb.done(true, "Сервер запущен и слушает. Пароль совпадает с клиентом.");
+                cb.done(true, "Сервер запущен и слушает. Пароль совпадает с клиентом."
+                        + (cfg.serverUsers > 0 ? "\nЛимит одновременных клиентов: " + cfg.serverUsers + "." : ""));
             } else if ("active".equals(active)) {
                 cb.step(5, total, STEP_NAMES[5], "ok", "active");
                 cb.done(true, "Сервис active. Лог:\n" + tail(logs));
@@ -165,11 +167,14 @@ public class DeployManager {
         e.append(REMOTE_BIN).append(" -server");
         e.append(" -addr ").append(cfg.serverAddr == null || cfg.serverAddr.isEmpty() ? ":80" : cfg.serverAddr);
         e.append(" -method ").append(cfg.serverMethod == null || cfg.serverMethod.isEmpty() ? "both" : cfg.serverMethod);
-        // Пароль сервера: явно заданный в поле «Пароль сервера», иначе пароль клиента.
-        String pw = (cfg.serverPassword != null && !cfg.serverPassword.isEmpty())
-                ? cfg.serverPassword : cfg.password;
+        // Мастер-ключ сервера: им подписываются ссылки и открывается админка.
+        String pw = cfg.serverPassword == null ? "" : cfg.serverPassword;
         if (pw != null && !pw.isEmpty()) {
             e.append(" -password \"").append(esc(pw)).append("\"");
+        }
+        // Лимит одновременных клиентов: 0 — без ограничения (флаг не добавляем).
+        if (cfg.serverUsers > 0) {
+            e.append(" -users ").append(cfg.serverUsers);
         }
 
         StringBuilder u = new StringBuilder();
@@ -196,6 +201,56 @@ public class DeployManager {
     private static String esc(String s) {
         if (s == null) return "";
         return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("$", "$$");
+    }
+
+    // ---- админка: ходим к серверу изнутри VPS (curl на localhost) ----
+
+    public interface AdminCb { void result(boolean ok, String body); }
+
+    /**
+     * Дёргает ручку /admin… у запущенного сервера через SSH: curl на localhost,
+     * мастер-пароль в заголовке. Наружу админка не светится, TLS не нужен —
+     * запрос никуда из машины не уходит.
+     */
+    public void admin(String path, AdminCb cb2) {
+        new Thread(() -> {
+            Session s = null;
+            try {
+                s = connect();
+                String pw = cfg.serverPassword == null ? "" : cfg.serverPassword;
+                String port = localPort();
+                // curl есть не на каждой VPS — молча падаем на wget. Всё заворачиваем
+                // в sh -c: логин-шелл на сервере может быть каким угодно (fish,
+                // например, не понимает if/then/fi).
+                String url = "http://127.0.0.1:" + port + path;
+                String hdr = "X-Tunnel-Auth: " + pw;
+                String inner = "if command -v curl >/dev/null 2>&1; then"
+                        + " curl -s --max-time 10 -H " + sq(hdr) + " " + sq(url) + ";"
+                        + " else wget -q -O - --timeout=10 --header=" + sq(hdr) + " " + sq(url) + ";"
+                        + " fi";
+                String cmd = "sh -c " + sq(inner);
+                Exec e = exec(s, cmd, null);
+                String out = e.out == null ? "" : e.out.trim();
+                cb2.result(out.startsWith("{"), out);
+            } catch (Throwable t) {
+                cb2.result(false, "Ошибка: " + t.getMessage());
+            } finally {
+                if (s != null) s.disconnect();
+            }
+        }, "admin-req").start();
+    }
+
+    /** Порт, на котором слушает сервер (из -addr вида ":80" или "1.2.3.4:8080"). */
+    private String localPort() {
+        String a = cfg.serverAddr == null ? "" : cfg.serverAddr.trim();
+        int i = a.lastIndexOf(':');
+        String p = i >= 0 ? a.substring(i + 1) : a;
+        return p.isEmpty() ? "80" : p;
+    }
+
+    /** Оборачивает строку в одинарные кавычки для shell (с экранированием своих). */
+    private static String sq(String s) {
+        return "'" + (s == null ? "" : s.replace("'", "'\\''")) + "'";
     }
 
     private Session connect() throws Exception {
@@ -251,6 +306,23 @@ public class DeployManager {
             while ((n = is.read(buf)) != -1) bos.write(buf, 0, n);
             return bos.toByteArray();
         }
+    }
+
+    /** Перезапуск сервиса на VPS (после смены параметров). */
+    public void restart(AdminCb cb2) {
+        new Thread(() -> {
+            Session s = null;
+            try {
+                s = connect();
+                Exec e = exec(s, "systemctl restart " + SERVICE + " && systemctl is-active " + SERVICE, null);
+                String out = e.out == null ? "" : e.out.trim();
+                cb2.result(out.contains("active"), out);
+            } catch (Throwable t) {
+                cb2.result(false, "Ошибка: " + t.getMessage());
+            } finally {
+                if (s != null) s.disconnect();
+            }
+        }, "admin-restart").start();
     }
 
     private void fail(int idx, int total, String name, String detail) {

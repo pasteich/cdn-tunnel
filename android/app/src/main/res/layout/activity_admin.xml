@@ -1,0 +1,173 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.core.widget.NestedScrollView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="vertical" android:padding="16dp">
+
+        <!-- Карточка сервера -->
+        <LinearLayout
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="vertical" android:background="@drawable/card_bg"
+            android:padding="16dp">
+            <LinearLayout
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:gravity="center_vertical">
+                <TextView
+                    android:id="@+id/tv_adm_host"
+                    android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="сервер"
+                    android:fontFamily="monospace" android:textSize="17sp" android:textStyle="bold"
+                    android:textColor="?attr/colorPrimary" />
+                <TextView
+                    android:id="@+id/tv_adm_online"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="—"
+                    android:fontFamily="monospace" android:textSize="15sp" android:textStyle="bold"
+                    android:textColor="@color/ok" />
+            </LinearLayout>
+            <TextView
+                android:id="@+id/tv_adm_sub"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:paddingTop="6dp"
+                android:text="подключаюсь…"
+                android:textSize="12sp" android:textColor="?attr/colorOnSurfaceVariant" />
+
+            <LinearLayout
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:paddingTop="12dp">
+                <LinearLayout
+                    android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:orientation="vertical">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="↓ за сессию сервера" android:textSize="11sp"
+                        android:textColor="?attr/colorOnSurfaceVariant" />
+                    <TextView android:id="@+id/tv_adm_down"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="0 B" android:textSize="20sp" android:textStyle="bold"
+                        android:fontFamily="monospace" android:textColor="@color/down" />
+                </LinearLayout>
+                <LinearLayout
+                    android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:orientation="vertical">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="↑ за сессию сервера" android:textSize="11sp"
+                        android:textColor="?attr/colorOnSurfaceVariant" />
+                    <TextView android:id="@+id/tv_adm_up"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="0 B" android:textSize="20sp" android:textStyle="bold"
+                        android:fontFamily="monospace" android:textColor="@color/up" />
+                </LinearLayout>
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Предупреждение, когда на VPS сборка старее приложения -->
+        <LinearLayout
+            android:id="@+id/box_outdated"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="vertical" android:background="@drawable/card_bg"
+            android:padding="14dp" android:layout_marginTop="10dp"
+            android:visibility="gone">
+            <TextView
+                android:id="@+id/tv_outdated"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="На сервере старая сборка"
+                android:textSize="13sp" android:textColor="@color/danger" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_adm_update"
+                android:layout_width="match_parent" android:layout_height="46dp"
+                android:layout_marginTop="10dp"
+                android:text="Обновить сервер" android:textStyle="bold"
+                app:cornerRadius="14dp" />
+        </LinearLayout>
+
+        <com.google.android.material.progressindicator.LinearProgressIndicator
+            android:id="@+id/adm_progress"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="6dp" android:indeterminate="true"
+            android:visibility="gone" app:trackCornerRadius="3dp" />
+
+        <!-- Действия -->
+        <LinearLayout
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="horizontal" android:layout_marginTop="12dp">
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_new_link"
+                android:layout_width="0dp" android:layout_weight="1" android:layout_height="50dp"
+                android:layout_marginEnd="8dp"
+                android:text="Новая ссылка" android:textStyle="bold"
+                app:cornerRadius="14dp" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_adm_refresh"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="wrap_content" android:layout_height="50dp"
+                android:text="Обновить" app:cornerRadius="14dp" />
+        </LinearLayout>
+        <LinearLayout
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="horizontal" android:layout_marginTop="8dp">
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_adm_limit"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="0dp" android:layout_weight="1" android:layout_height="46dp"
+                android:layout_marginEnd="8dp"
+                android:text="Лимит" app:cornerRadius="14dp" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_adm_restart"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="0dp" android:layout_weight="1" android:layout_height="46dp"
+                android:text="Перезапустить" app:cornerRadius="14dp" />
+        </LinearLayout>
+
+        <!-- Ссылки -->
+        <LinearLayout
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="horizontal" android:gravity="center_vertical"
+            android:paddingTop="20dp" android:paddingBottom="4dp">
+            <TextView style="@style/Section"
+                android:layout_width="0dp" android:layout_weight="1"
+                android:text="Ссылки" />
+            <TextView
+                android:id="@+id/tv_adm_links_count"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="" android:textSize="12sp" android:fontFamily="monospace"
+                android:textColor="?attr/colorOnSurfaceVariant" />
+        </LinearLayout>
+        <LinearLayout
+            android:id="@+id/box_links"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="vertical" />
+
+        <!-- Пользователи -->
+        <LinearLayout
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="horizontal" android:gravity="center_vertical"
+            android:paddingTop="20dp" android:paddingBottom="4dp">
+            <TextView style="@style/Section"
+                android:layout_width="0dp" android:layout_weight="1"
+                android:text="Пользователи" />
+            <TextView
+                android:id="@+id/tv_adm_users_count"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="" android:textSize="12sp" android:fontFamily="monospace"
+                android:textColor="?attr/colorOnSurfaceVariant" />
+        </LinearLayout>
+        <LinearLayout
+            android:id="@+id/box_admin_users"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="vertical" />
+
+        <TextView
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="Данные читаются с сервера по SSH (ручка /admin), обновление каждые 5 секунд. Трафик за всё время хранится на сервере и переживает перезапуск."
+            android:textSize="11sp" android:textColor="?attr/colorOnSurfaceVariant" />
+
+    </LinearLayout>
+</androidx.core.widget.NestedScrollView>

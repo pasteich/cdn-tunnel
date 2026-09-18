@@ -9,10 +9,16 @@ import android.content.pm.ServiceInfo;
 import android.net.VpnService;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
+import android.provider.Settings;
+
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.InetSocketAddress;
+import java.security.MessageDigest;
 import java.net.Socket;
 import java.util.ArrayList;
 import java.util.List;
@@ -42,7 +48,11 @@ public class TunVpnService extends VpnService {
     private volatile boolean engineUp = false;
     private volatile boolean stopping = false;
     private volatile boolean authFail = false;
+    private volatile boolean userLimit = false; // сервер полон (-users): клиент получил 429
+    private volatile boolean linkUsed = false;  // ссылка занята другим устройством (409)
+    private volatile boolean banned = false;    // клиент заблокирован владельцем (403 banned)
     private volatile int socksPort = 8090;
+    private volatile long lastUsers = -1; // последнее «занято» из строк USERS (-1 = ещё не знаем)
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
@@ -66,6 +76,10 @@ public class TunVpnService extends VpnService {
     private void bringUp(Config cfg) {
         stopping = false;
         authFail = false;
+        userLimit = false;
+        linkUsed = false;
+        banned = false;
+        lastUsers = -1;
         socksPort = cfg.port;
         try {
             TunState.log("[svc] запуск бинарника туннеля…");
@@ -77,6 +91,14 @@ public class TunVpnService extends VpnService {
                 if (authFail) {
                     TunState.setPhase(TunState.AUTH_FAIL, "сервер отклонил пароль");
                     TunState.log("[svc] неверный пароль — подключение отклонено");
+                } else if (linkUsed) {
+                    TunState.setPhase(TunState.LINK_USED, "ссылка уже использована на другом устройстве");
+                    TunState.log("[svc] ссылка занята другим устройством");
+                } else if (banned) {
+                    TunState.setPhase(TunState.BANNED, "владелец сервера заблокировал этого клиента");
+                } else if (userLimit) {
+                    TunState.setPhase(TunState.USER_LIMIT, "достигнуто максимальное число подключений");
+                    TunState.log("[svc] сервер занят: лимит одновременных клиентов исчерпан");
                 } else {
                     TunState.setPhase(TunState.ERROR, "SOCKS не поднялся (сервер недоступен?)");
                     TunState.log("[svc] ОШИБКА: SOCKS " + cfg.port + " не поднялся");
@@ -227,7 +249,11 @@ public class TunVpnService extends VpnService {
         cmd.add("-client");
         cmd.add("-ip"); cmd.add(cfg.ip);
         cmd.add("-host"); cmd.add(cfg.host);
-        if (cfg.password != null && !cfg.password.isEmpty()) {
+        // По ссылке ходим с её удостоверением, у владельца — с мастер-паролем.
+        if (cfg.cred != null && !cfg.cred.isEmpty()) {
+            cmd.add("-cred"); cmd.add(cfg.cred);
+            cmd.add("-device"); cmd.add(deviceFingerprint());
+        } else if (cfg.password != null && !cfg.password.isEmpty()) {
             cmd.add("-password"); cmd.add(cfg.password);
         }
         cmd.add("-listen"); cmd.add("127.0.0.1:" + cfg.port);
@@ -236,6 +262,9 @@ public class TunVpnService extends VpnService {
         cmd.add("-method"); cmd.add(cfg.method);
         cmd.add("-transport"); cmd.add(cfg.transport);
         cmd.add("-fastopen=" + cfg.fastopen);
+        if (cfg.name != null && !cfg.name.trim().isEmpty()) {
+            cmd.add("-name"); cmd.add(cfg.name.trim()); // под этим именем клиент виден в списке
+        }
         cmd.add("-stats");
 
         TunState.log("[svc] exec: libtun.so -client -ip " + cfg.ip + " -host " + cfg.host
@@ -267,6 +296,25 @@ public class TunVpnService extends VpnService {
         reader.start();
     }
 
+    /**
+     * Отпечаток устройства для привязки ссылки: ANDROID_ID (у каждого приложения
+     * на каждом устройстве свой и стабильный) в виде укороченного хеша — наружу
+     * уходит только он, сам идентификатор не светится.
+     */
+    private String deviceFingerprint() {
+        String raw = Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
+        if (raw == null || raw.isEmpty()) raw = Build.MODEL + "/" + Build.FINGERPRINT;
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] h = md.digest(("cdn-tunnel/device/v1:" + raw).getBytes("UTF-8"));
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < 8; i++) sb.append(String.format("%02x", h[i]));
+            return sb.toString();
+        } catch (Exception e) {
+            return "android";
+        }
+    }
+
     /** Parse a line from the tunnel: STATS (traffic), STATUS (auth/link) or a log line. */
     private void handleTunLine(String line) {
         if (line == null) return;
@@ -277,11 +325,39 @@ public class TunVpnService extends VpnService {
             parseStats(l);
             return; // don't spam the log with per-second stats
         }
+        if (l.startsWith("ROSTER ")) {
+            handleRosterLine(l.substring(7).trim());
+            return; // список пользователей — не в журнал, а на вкладку «Юзеры»
+        }
+        if (l.startsWith("USERS ")) {
+            handleUsersLine(l.substring(6).trim());
+            return;
+        }
         if (l.startsWith("STATUS ")) {
             String s = l.substring(7).trim();
             if (s.equals("authfail")) {
                 authFail = true;
                 TunState.setPhase(TunState.AUTH_FAIL, "сервер отклонил пароль");
+            }
+            if (s.equals("linkused")) {
+                linkUsed = true;
+                TunState.setPhase(TunState.LINK_USED, "ссылка уже использована на другом устройстве");
+                TunState.log("[tun] ⚠ эта ссылка привязана к другому устройству — попросите новую");
+            }
+            if (s.equals("linkrevoked")) {
+                linkUsed = true;
+                TunState.setPhase(TunState.LINK_REVOKED, "владелец отозвал эту ссылку");
+                TunState.log("[tun] ⛔ ссылка отозвана владельцем сервера");
+            }
+            if (s.equals("banned")) {
+                banned = true;
+                TunState.setPhase(TunState.BANNED, "владелец сервера заблокировал этого клиента");
+                TunState.log("[tun] ⛔ клиент заблокирован на сервере");
+            }
+            if (s.equals("userlimit")) {
+                userLimit = true;
+                TunState.setPhase(TunState.USER_LIMIT, "достигнуто максимальное число подключений");
+                TunState.log("[tun] ⚠ сервер занят: свободных мест нет (-users)");
             }
             TunState.log("[tun] " + l);
             return;
@@ -290,7 +366,64 @@ public class TunVpnService extends VpnService {
         if (low.contains("403") || low.contains("неверный пароль")) {
             authFail = true;
         }
+        if (low.contains("максимальное число подключений")) {
+            userLimit = true;
+        }
         TunState.log("[tun] " + l);
+    }
+
+    /**
+     * Строка "USERS n/m" — сервер с флагом -users сообщает, сколько клиентов
+     * сейчас занято из скольких. Клиент печатает её только при изменении, так
+     * что журнал показывает подключения соседей в прямом эфире.
+     */
+    private void handleUsersLine(String v) {
+        int slash = v.indexOf('/');
+        if (slash <= 0) return;
+        long now, max;
+        try {
+            now = Long.parseLong(v.substring(0, slash).trim());
+            max = Long.parseLong(v.substring(slash + 1).trim());
+        } catch (NumberFormatException e) {
+            return;
+        }
+        long prev = lastUsers;
+        lastUsers = now;
+        TunState.setUsers(now, max);
+        String line;
+        if (prev < 0)        line = "👥 Подключено " + now + "/" + max;
+        else if (now > prev) line = "👥 Подключился клиент — " + now + "/" + max;
+        else if (now < prev) line = "👥 Клиент отключился — " + now + "/" + max;
+        else                 line = "👥 " + now + "/" + max;
+        TunState.log("[tun] " + line);
+    }
+
+    /**
+     * Строка "ROSTER {json}" — список пользователей сервера (кто онлайн, кто нет).
+     * Клиент печатает её только при изменении состава.
+     */
+    private void handleRosterLine(String json) {
+        try {
+            JSONObject o = new JSONObject(json);
+            TunState.Roster r = new TunState.Roster();
+            r.limit = o.optInt("limit", 0);
+            r.online = o.optInt("online", 0);
+            r.at = System.currentTimeMillis();
+            JSONArray arr = o.optJSONArray("users");
+            for (int i = 0; arr != null && i < arr.length(); i++) {
+                JSONObject u = arr.optJSONObject(i);
+                if (u == null) continue;
+                TunState.User user = new TunState.User();
+                user.name = u.optString("name", "?");
+                user.online = u.optBoolean("online", false);
+                user.last = u.optLong("last", 0);
+                user.since = u.optLong("since", 0);
+                user.seen = u.optLong("seen", 0);
+                r.users.add(user);
+            }
+            TunState.setRoster(r);
+        } catch (JSONException ignored) {
+        }
     }
 
     private void parseStats(String l) {
@@ -312,6 +445,8 @@ public class TunVpnService extends VpnService {
                 case "downRate": st.downRate = v; break;
                 case "upRate": st.upRate = v; break;
                 case "rtt": st.rtt = v; break;
+                case "users": st.users = v; break;
+                case "maxusers": st.maxUsers = v; break;
             }
         }
         TunState.setStats(st);

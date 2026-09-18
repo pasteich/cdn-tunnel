@@ -2,6 +2,20 @@ plugins {
     id 'com.android.application'
 }
 
+// Go-часть собирается перед APK: серверный бинарь из assets/ уезжает на VPS
+// автодеплоем, и он обязан соответствовать текущему main.go — иначе сервер
+// отвечает «unknown action» на ручки, которых в нём ещё нет.
+tasks.register('buildGoBinaries', Exec) {
+    workingDir rootProject.projectDir
+    commandLine 'bash', "${rootProject.projectDir}/build-go.sh"
+    inputs.file "${rootProject.projectDir}/../main.go"
+    outputs.files(
+            "${projectDir}/src/main/assets/server/cdn-tunnel-amd64",
+            "${projectDir}/src/main/assets/server/cdn-tunnel-arm64",
+            "${projectDir}/src/main/jniLibs/arm64-v8a/libtun.so")
+}
+tasks.matching { it.name == 'preBuild' }.configureEach { dependsOn 'buildGoBinaries' }
+
 android {
     namespace 'com.cdn.vpn'
     compileSdk 34

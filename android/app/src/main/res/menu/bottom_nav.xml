@@ -1,6 +1,6 @@
 <menu xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:id="@+id/nav_tunnel"  android:icon="@drawable/ic_tab_tunnel"  android:title="Туннель" />
+    <item android:id="@+id/nav_users"   android:icon="@drawable/ic_tab_users"   android:title="Юзеры" />
     <item android:id="@+id/nav_server"  android:icon="@drawable/ic_tab_server"  android:title="Сервер" />
     <item android:id="@+id/nav_traffic" android:icon="@drawable/ic_tab_traffic" android:title="Трафик" />
-    <item android:id="@+id/nav_log"     android:icon="@drawable/ic_tab_log"     android:title="Лог" />
 </menu>

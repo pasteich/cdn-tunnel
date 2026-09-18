@@ -30,13 +30,9 @@
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
                     android:paddingBottom="14dp">
-                    <TextView
-                        android:layout_width="0dp" android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="cdn_tunnel"
-                        android:fontFamily="monospace"
-                        android:textSize="18sp" android:textStyle="bold"
-                        android:textColor="?attr/colorPrimary" />
+                    <View
+                        android:layout_width="0dp" android:layout_height="1dp"
+                        android:layout_weight="1" />
                     <TextView
                         android:id="@+id/tv_conn"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -67,6 +63,15 @@
                         android:textSize="13sp"
                         android:paddingTop="2dp"
                         android:textColor="?attr/colorOnSurfaceVariant" />
+                    <TextView
+                        android:id="@+id/tv_users_live"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:text="👥 Подключено —"
+                        android:textSize="13sp"
+                        android:fontFamily="monospace"
+                        android:paddingTop="6dp"
+                        android:visibility="gone"
+                        android:textColor="?attr/colorPrimary" />
                     <com.google.android.material.progressindicator.LinearProgressIndicator
                         android:id="@+id/progress"
                         android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -75,6 +80,73 @@
                         android:visibility="gone"
                         app:trackCornerRadius="3dp" />
                 </LinearLayout>
+
+                <TextView style="@style/Section" android:text="Профиль" />
+
+                <com.google.android.material.textfield.TextInputLayout
+                    style="@style/Field" android:hint="Твоё имя (видно друзьям в списке)">
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/et_name"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:inputType="text" android:fontFamily="monospace"
+                        android:maxLines="1" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <com.google.android.material.textfield.TextInputLayout
+                    style="@style/Field" android:hint="cdn://…">
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/et_link"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:inputType="textMultiLine" android:fontFamily="monospace"
+                        android:textSize="12sp" android:maxLines="3" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:layout_marginBottom="6dp">
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_import"
+                        android:layout_width="0dp" android:layout_weight="1" android:layout_height="48dp"
+                        android:layout_marginEnd="8dp"
+                        android:text="Импортировать" android:textStyle="bold"
+                        app:cornerRadius="14dp" />
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_paste"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="wrap_content" android:layout_height="48dp"
+                        android:text="Из буфера" app:cornerRadius="14dp" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/tv_profile"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="Сервер не задан"
+                    android:textSize="12sp" android:fontFamily="monospace"
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    android:paddingBottom="6dp" />
+
+                <!-- Ручная настройка (свёрнута: обычно хватает ссылки) -->
+                <LinearLayout
+                    android:id="@+id/hdr_manual"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:gravity="center_vertical"
+                    android:paddingVertical="12dp" android:clickable="true" android:focusable="true">
+                    <TextView
+                        android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Ручная настройка"
+                        android:textAllCaps="true" android:textStyle="bold"
+                        android:textSize="13sp" android:letterSpacing="0.08"
+                        android:alpha="0.6" android:textColor="?attr/colorOnSurface" />
+                    <TextView android:id="@+id/chev_manual"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="▸" android:textColor="?attr/colorPrimary" android:textSize="16sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/box_manual"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="vertical" android:visibility="gone">
 
                 <TextView style="@style/Section" android:text="Подключение" />
 
@@ -98,7 +170,7 @@
                 </com.google.android.material.textfield.TextInputLayout>
 
                 <com.google.android.material.textfield.TextInputLayout
-                    style="@style/Field" android:hint="Пароль туннеля"
+                    style="@style/Field" android:hint="Мастер-ключ (вход без ссылки)"
                     app:endIconMode="password_toggle">
                     <com.google.android.material.textfield.TextInputEditText
                         android:id="@+id/et_password"
@@ -106,6 +178,11 @@
                         android:inputType="textPassword" android:fontFamily="monospace"
                         android:maxLines="1" />
                 </com.google.android.material.textfield.TextInputLayout>
+                <TextView
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="Нужен только владельцу сервера, чтобы зайти напрямую. По ссылке cdn:// поле не заполняется и не требуется."
+                    android:textSize="11sp" android:textColor="?attr/colorOnSurfaceVariant"
+                    android:paddingBottom="10dp" />
 
                 <LinearLayout style="@style/Row">
                     <com.google.android.material.textfield.TextInputLayout
@@ -264,6 +341,15 @@
                 </LinearLayout>
 
                 <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_wipe"
+                    style="@style/Widget.Material3.Button.TextButton"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:layout_gravity="end"
+                    android:text="Стереть все настройки" android:textColor="@color/danger" />
+
+                </LinearLayout><!-- /box_manual -->
+
+                <com.google.android.material.button.MaterialButton
                     android:id="@+id/btn_toggle"
                     android:layout_width="match_parent" android:layout_height="56dp"
                     android:layout_marginTop="18dp"
@@ -286,11 +372,7 @@
                 android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:orientation="vertical" android:padding="16dp">
 
-                <TextView
-                    android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:text="cdn_tunnel"
-                    android:fontFamily="monospace" android:textSize="18sp" android:textStyle="bold"
-                    android:textColor="?attr/colorPrimary" android:paddingBottom="14dp" />
+
 
                 <!-- Download card -->
                 <LinearLayout
@@ -362,17 +444,103 @@
 
                 <LinearLayout
                     android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:background="@drawable/card_bg" android:padding="14dp"
-                    android:layout_marginTop="14dp">
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="UDP ↓ / ↑" android:textSize="12sp"
-                        android:textColor="?attr/colorOnSurfaceVariant" />
-                    <TextView android:id="@+id/tv_udp"
-                        android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="0 B / 0 B" android:textSize="18sp" android:textStyle="bold"
-                        android:fontFamily="monospace" android:textColor="?attr/colorOnSurface" />
+                    android:orientation="horizontal" android:layout_marginTop="14dp">
+                    <LinearLayout
+                        android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:orientation="vertical"
+                        android:background="@drawable/card_bg" android:padding="14dp"
+                        android:layout_marginEnd="7dp">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="UDP ↓ / ↑" android:textSize="12sp"
+                            android:textColor="?attr/colorOnSurfaceVariant" />
+                        <TextView android:id="@+id/tv_udp"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="0 B / 0 B" android:textSize="18sp" android:textStyle="bold"
+                            android:fontFamily="monospace" android:textColor="?attr/colorOnSurface" />
+                    </LinearLayout>
+                    <LinearLayout
+                        android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:orientation="vertical"
+                        android:background="@drawable/card_bg" android:padding="14dp"
+                        android:layout_marginStart="7dp">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Пользователи" android:textSize="12sp"
+                            android:textColor="?attr/colorOnSurfaceVariant" />
+                        <TextView android:id="@+id/tv_users"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="—" android:textSize="18sp" android:textStyle="bold"
+                            android:fontFamily="monospace" android:textColor="?attr/colorOnSurface" />
+                    </LinearLayout>
                 </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:gravity="center_vertical"
+                    android:paddingTop="18dp">
+                    <TextView
+                        android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:text="Журнал"
+                        android:textStyle="bold" android:textSize="16sp"
+                        android:textColor="?attr/colorPrimary" />
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_clear"
+                        style="@style/Widget.Material3.Button.TextButton"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Очистить" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/tv_log"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:background="@drawable/card_bg" android:padding="10dp"
+                    android:fontFamily="monospace" android:textSize="11sp"
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    android:textIsSelectable="true" />
+
+            </LinearLayout>
+        </androidx.core.widget.NestedScrollView>
+
+        <!-- ===================== USERS TAB ===================== -->
+        <androidx.core.widget.NestedScrollView
+            android:id="@+id/tab_users"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:fillViewport="true"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="vertical" android:padding="16dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:gravity="center_vertical"
+                    android:paddingBottom="14dp">
+                    <TextView
+                        android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Пользователи"
+                        android:fontFamily="monospace" android:textSize="18sp" android:textStyle="bold"
+                        android:textColor="?attr/colorPrimary" />
+                    <TextView
+                        android:id="@+id/tv_users_count"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="—"
+                        android:fontFamily="monospace" android:textSize="15sp" android:textStyle="bold"
+                        android:textColor="?attr/colorOnSurface" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/box_users"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="vertical" />
+
+                <TextView
+                    android:id="@+id/tv_users_hint"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="Список приходит с сервера, пока VPN запущен. Каждый клиент виден под своим именем (поле «Твоё имя» на вкладке «Туннель», флаг -name у бинарника)."
+                    android:textSize="12sp" android:textColor="?attr/colorOnSurfaceVariant" />
 
             </LinearLayout>
         </androidx.core.widget.NestedScrollView>
@@ -391,12 +559,12 @@
 
                 <TextView
                     android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:text="автодеплой сервера"
+                    android:text="Сервер"
                     android:fontFamily="monospace" android:textSize="18sp" android:textStyle="bold"
                     android:textColor="?attr/colorPrimary" android:paddingBottom="4dp" />
                 <TextView
                     android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:text="Заливает бинарь на VPS по SSH и ставит systemd-сервис (автозапуск при ребуте). Пароль туннеля берётся со вкладки «Туннель»."
+                    android:text="Разворачивает сервер на VPS по SSH (systemd, автозапуск при ребуте). После деплоя — «Управление»: юзеры, трафик, лимиты, ссылки."
                     android:textSize="12sp" android:textColor="?attr/colorOnSurfaceVariant"
                     android:paddingBottom="14dp" />
 
@@ -457,7 +625,7 @@
                 </LinearLayout>
 
                 <com.google.android.material.textfield.TextInputLayout
-                    style="@style/Field" android:hint="Пароль сервера (-password)"
+                    style="@style/Field" android:hint="Мастер-ключ сервера"
                     app:endIconMode="password_toggle">
                     <com.google.android.material.textfield.TextInputEditText
                         android:id="@+id/et_server_pass"
@@ -466,17 +634,38 @@
                 </com.google.android.material.textfield.TextInputLayout>
                 <TextView
                     android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:text="Должен совпадать с паролем на вкладке «Туннель». Пусто — возьмётся пароль клиента."
+                    android:text="Корень всей защиты: им подписываются ссылки cdn:// и открывается «Управление сервером». Друзьям он не нужен — они подключаются по ссылке, привязанной к их устройству. Оставьте пустым — сгенерируется сам при развёртывании."
+                    android:textSize="11sp" android:textColor="?attr/colorOnSurfaceVariant"
+                    android:paddingBottom="4dp" />
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_gen_key"
+                    style="@style/Widget.Material3.Button.TextButton"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:layout_gravity="end"
+                    android:text="Сгенерировать ключ" />
+
+                <LinearLayout style="@style/Row">
+                    <com.google.android.material.textfield.TextInputLayout
+                        style="@style/Field.Half" android:hint="Рестарт, мин (0 = нет)"
+                        android:layout_marginEnd="10dp">
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/et_restart_min"
+                            android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:inputType="number" android:fontFamily="monospace" android:maxLines="1" />
+                    </com.google.android.material.textfield.TextInputLayout>
+                    <com.google.android.material.textfield.TextInputLayout
+                        style="@style/Field.Half" android:hint="Макс. юзеров (-users)">
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/et_server_users"
+                            android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:inputType="number" android:fontFamily="monospace" android:maxLines="1" />
+                    </com.google.android.material.textfield.TextInputLayout>
+                </LinearLayout>
+                <TextView
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="Сколько клиентов сервер обслуживает одновременно. 0 — без лимита; лишним отвечает 429, в журнале сервера — «достигнуто максимальное число подключений»."
                     android:textSize="11sp" android:textColor="?attr/colorOnSurfaceVariant"
                     android:paddingBottom="10dp" />
-
-                <com.google.android.material.textfield.TextInputLayout
-                    style="@style/Field" android:hint="Рестарт каждые N минут (0 = не рестартить)">
-                    <com.google.android.material.textfield.TextInputEditText
-                        android:id="@+id/et_restart_min"
-                        android:layout_width="match_parent" android:layout_height="wrap_content"
-                        android:inputType="number" android:fontFamily="monospace" android:maxLines="1" />
-                </com.google.android.material.textfield.TextInputLayout>
 
                 <LinearLayout
                     android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -493,6 +682,12 @@
                         android:layout_width="wrap_content" android:layout_height="52dp"
                         android:text="Статус" app:cornerRadius="14dp" />
                 </LinearLayout>
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_admin"
+                    android:layout_width="match_parent" android:layout_height="52dp"
+                    android:layout_marginTop="8dp"
+                    android:text="Управление сервером" android:textStyle="bold"
+                    app:cornerRadius="14dp" />
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btn_uninstall"
                     style="@style/Widget.Material3.Button.TextButton"
@@ -520,46 +715,6 @@
 
             </LinearLayout>
         </androidx.core.widget.NestedScrollView>
-
-        <!-- ===================== LOG TAB ===================== -->
-        <LinearLayout
-            android:id="@+id/tab_log"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:orientation="vertical"
-            android:padding="12dp"
-            android:visibility="gone">
-
-            <LinearLayout
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:orientation="horizontal" android:gravity="center_vertical"
-                android:paddingBottom="8dp">
-                <TextView
-                    android:layout_width="0dp" android:layout_height="wrap_content"
-                    android:layout_weight="1" android:text="Журнал"
-                    android:textStyle="bold" android:textSize="16sp"
-                    android:textColor="?attr/colorPrimary" />
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btn_clear"
-                    style="@style/Widget.Material3.Button.TextButton"
-                    android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="Очистить" />
-            </LinearLayout>
-
-            <ScrollView
-                android:id="@+id/log_scroll"
-                android:layout_width="match_parent" android:layout_height="0dp"
-                android:layout_weight="1"
-                android:background="@drawable/card_bg"
-                android:padding="10dp">
-                <TextView
-                    android:id="@+id/tv_log"
-                    android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:fontFamily="monospace" android:textSize="11sp"
-                    android:textColor="?attr/colorOnSurfaceVariant"
-                    android:textIsSelectable="true" />
-            </ScrollView>
-        </LinearLayout>
 
     </FrameLayout>
 
