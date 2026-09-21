@@ -15,6 +15,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -58,9 +59,7 @@ func main() {
 		fastopen  = flag.Bool("fastopen", true, "оптимистичный SOCKS-ответ до подтверждения connect (убирает 1 RTT на соединение)")
 		window    = flag.Int("window", 32, "число одновременных up-запросов в полёте (chunked, режим post/get)")
 		idle      = flag.Int("idle", 120, "таймаут простоя стрима на сервере в секундах (0 = не закрывать)")
-		users     = flag.Int("users", 0, "максимум одновременно подключённых клиентов (режим -server; 0 = без лимита)")
-		name      = flag.String("name", "", "имя клиента — под ним он виден в списке пользователей сервера")
-		state     = flag.String("state", defaultStatePath, "файл со списком известных клиентов (режим -server; пусто = не сохранять)")
+		state     = flag.String("state", defaultStatePath, "файл реестра выпущенных ссылок (режим -server; пусто = не сохранять)")
 		link      = flag.String("link", "", "cdn://-ссылка с настройками подключения (режим -client; заменяет -ip/-host/-password/…)")
 		device    = flag.String("device", "", "отпечаток устройства для привязки ссылки (по умолчанию определяется сам)")
 		cred      = flag.String("cred", "", "удостоверение ссылки <id>.<подпись> (режим -client; альтернатива -password)")
@@ -76,10 +75,6 @@ func main() {
 		upWindow = 1
 	}
 	idleTimeout = time.Duration(*idle) * time.Second
-	if *users > 0 {
-		maxUsers.Store(int64(*users))
-	}
-	clientName = cleanName(*name)
 	statePath = *state
 	if deviceID = strings.TrimSpace(*device); deviceID == "" {
 		deviceID = localDeviceID()
@@ -106,7 +101,7 @@ func main() {
 			fmt.Printf("✗ Ссылка не разобрана: %v\n", err)
 			os.Exit(1)
 		}
-		p.applyTo(ip, host, pass, conns, udp, method, transport, &clientName)
+		p.applyTo(ip, host, pass, conns, udp, method, transport)
 		// Метод/транспорт из ссылки применяются уже после разбора флагов выше.
 		switch strings.ToLower(strings.TrimSpace(*method)) {
 		case "get":
@@ -128,7 +123,7 @@ func main() {
 		// работает на одном устройстве и его не жалко отправить в мессенджер.
 		fmt.Println(encodeShare(shareParams{
 			IP: *ip, Host: *host, Cred: issueCred(*pass), Conns: *conns,
-			UDP: *udp, Method: *method, Transport: *transport, Label: clientName,
+			UDP: *udp, Method: *method, Transport: *transport,
 		}))
 		return
 	}
@@ -149,14 +144,6 @@ func main() {
 // токен отключает проверку (обратная совместимость).
 var authToken string
 
-// maxUsers — сколько клиентов сервер обслуживает одновременно (-users).
-// 0 — без ограничения. Меняется из админки на ходу, поэтому атомарный.
-var maxUsers atomic.Int64
-
-// clientName — имя клиента (-name). Едет на сервер в заголовке X-Tunnel-Name и
-// служит ключом слота: один и тот же человек с разных запусков — один слот.
-var clientName string
-
 // linkCred — удостоверение ссылки ("<id>.<подпись>"), если клиент запущен по
 // cdn://-ссылке. Едет в заголовке X-Tunnel-Link вместо мастер-пароля.
 var linkCred string
@@ -164,16 +151,16 @@ var linkCred string
 // deviceID — отпечаток этого устройства: сервер привязывает к нему ссылку.
 var deviceID string
 
-// statePath — где сервер хранит список известных клиентов между перезапусками.
+// statePath — где сервер хранит реестр выпущенных ссылок между перезапусками.
 var statePath string
 
-// defaultStatePath — файл состояния по умолчанию (создаётся при старте сервера;
+// defaultStatePath — файл реестра по умолчанию (создаётся при старте сервера;
 // если каталог недоступен, сохранение просто выключается).
-const defaultStatePath = "/var/lib/cdn-tunnel/users.json"
+const defaultStatePath = "/var/lib/cdn-tunnel/links.json"
 
 // clientID — случайный идентификатор этого запуска клиента; едет в заголовке
-// X-Tunnel-Client на каждом запросе. По нему сервер считает «пользователей»:
-// весь пул соединений и все стримы одного клиента занимают ровно один слот.
+// X-Tunnel-Client. Сервер его не использует для доступа (доступ решает ссылка),
+// он нужен только чтобы различать запросы одного запуска в журналах.
 var clientID = randID()
 
 // plainStats переключает вывод статистики в построчный машиночитаемый формат
@@ -201,20 +188,8 @@ var (
 
 const authHeader = "X-Tunnel-Auth"
 
-// clientHeader несёт идентификатор клиента (см. clientID) — единица учёта
-// для лимита -users.
+// clientHeader несёт идентификатор запуска клиента (см. clientID).
 const clientHeader = "X-Tunnel-Client"
-
-// usersHeader сервер ставит на каждый ответ: "онлайн/лимит" (например "2/5",
-// лимит 0 — без ограничения). По нему клиент показывает счётчик в прямом эфире.
-const usersHeader = "X-Tunnel-Users"
-
-// nameHeader несёт имя клиента (-name) в percent-encoded виде — по нему сервер
-// показывает клиента в списке пользователей.
-const nameHeader = "X-Tunnel-Name"
-
-// usersPath — ручка со списком пользователей (кто онлайн, кто офлайн).
-const usersPath = "/users"
 
 // linkHeader несёт удостоверение ссылки: "<id>.<подпись>". Подпись — HMAC от
 // мастер-секрета сервера, поэтому сервер проверяет ссылку, ничего о ней заранее
@@ -291,7 +266,7 @@ type stats struct {
 	udpDown   atomic.Uint64
 	connected atomic.Bool
 	rttMs     atomic.Int64 // последний измеренный RTT client↔CDN↔origin, мс
-	users     atomic.Int64 // занятые слоты -users (сервер)
+	online    atomic.Int64 // сколько ссылок сейчас на линии (сервер)
 }
 
 var st *stats
@@ -327,15 +302,9 @@ func (s *stats) render() {
 		// Машиночитаемый режим: одна строка в секунду, без ANSI и \r —
 		// Android-обёртка парсит её для счётчика трафика.
 		if plainStats {
-			users, limit := s.users.Load(), maxUsers.Load()
-			if s.role == "client" {
-				n, lim := usersSnapshot()
-				users, limit = int64(n), int64(lim)
-			}
-			fmt.Printf("STATS down=%d up=%d udpDown=%d udpUp=%d conns=%d total=%d downRate=%.0f upRate=%.0f rtt=%d users=%d maxusers=%d\n",
+			fmt.Printf("STATS down=%d up=%d udpDown=%d udpUp=%d conns=%d total=%d downRate=%.0f upRate=%.0f rtt=%d\n",
 				down, up, s.udpDown.Load(), s.udpUp.Load(),
-				s.conns.Load(), s.total.Load(), downRate, upRate, s.rttMs.Load(),
-				users, limit)
+				s.conns.Load(), s.total.Load(), downRate, upRate, s.rttMs.Load())
 			continue
 		}
 
@@ -346,8 +315,8 @@ func (s *stats) render() {
 				continue
 			}
 			lastQuiet = now
-			fmt.Printf("сводка: онлайн %d, стримов %d (всего %d) · ↓ %s (%s/s) · ↑ %s (%s/s)\n",
-				s.users.Load(), s.conns.Load(), s.total.Load(),
+			fmt.Printf("сводка: на линии %d, стримов %d (всего %d) · ↓ %s (%s/s) · ↑ %s (%s/s)\n",
+				s.online.Load(), s.conns.Load(), s.total.Load(),
 				human(float64(down)), human(downRate), human(float64(up)), human(upRate))
 			continue
 		}
@@ -369,8 +338,8 @@ func (s *stats) render() {
 		if r := s.rttMs.Load(); r > 0 {
 			rtt = fmt.Sprintf(" │ rtt %dms", r)
 		}
-		if lim := maxUsers.Load(); s.role == "server" && lim > 0 {
-			rtt += fmt.Sprintf(" │ users %d/%d", s.users.Load(), lim)
+		if s.role == "server" {
+			rtt += fmt.Sprintf(" │ на линии %d", s.online.Load())
 		}
 		line := fmt.Sprintf("%s %s │ %s %d (Σ%d) │ ↓ %s (%s/s) │ ↑ %s (%s/s) │ udp ↓%s ↑%s%s",
 			dot, state,
@@ -589,11 +558,11 @@ type shareParams struct {
 	UDP       bool   `json:"udp"`
 	Method    string `json:"method,omitempty"`
 	Transport string `json:"transport,omitempty"`
-	Label     string `json:"label,omitempty"` // подпись профиля (не имя клиента)
+	Label     string `json:"label,omitempty"` // подпись профиля, для показа в приложении
 }
 
 // applyTo переносит параметры ссылки в разобранные флаги клиента.
-func (p shareParams) applyTo(ip, host, pass *string, conns *int, udp *bool, method, transport, label *string) {
+func (p shareParams) applyTo(ip, host, pass *string, conns *int, udp *bool, method, transport *string) {
 	if p.IP != "" {
 		*ip = p.IP
 	}
@@ -612,17 +581,15 @@ func (p shareParams) applyTo(ip, host, pass *string, conns *int, udp *bool, meth
 	if p.Transport != "" {
 		*transport = p.Transport
 	}
-	if *label == "" && p.Label != "" {
-		*label = p.Label
-	}
 }
 
 // ---- удостоверение ссылки: "<id>.<подпись>" ----
 //
 // Владелец сервера выпускает ссылку, подписывая случайный id мастер-секретом
-// (-password). Сервер проверяет подпись тем же секретом — список выданных ссылок
-// ему не нужен, — а сам мастер-секрет в ссылку не попадает. Первое устройство,
-// пришедшее с таким id, к нему и привязывается.
+// (-password); сам секрет в ссылку не попадает. Подпись доказывает, что ссылку
+// выпустил владелец, но доступ даёт не она, а запись в реестре сервера: пускают
+// только ссылки, которые там есть и не отозваны (см. linkGate.useLink).
+// Первое устройство, пришедшее с таким id, к нему и привязывается.
 
 // issueCred выпускает удостоверение для новой ссылки.
 func issueCred(master string) string {
@@ -755,12 +722,11 @@ func decodeShare(link string) (shareParams, error) {
 	return p, nil
 }
 
-// ============================ ПОЛЬЗОВАТЕЛИ ============================
+// ============================ ССЫЛКИ ============================
 
-// seatTTL — сколько клиент считается онлайн без единого запроса. Клиент пингует
-// сервер каждые несколько секунд, так что пропуск нескольких пингов подряд
-// означает, что он отвалился: слот освобождается, в списке он станет «офлайн».
-const seatTTL = 45 * time.Second
+// linkTTL — сколько молчания клиента считается отключением. Клиент пингует
+// сервер каждые 15 секунд, так что это три пропущенных пинга подряд.
+const linkTTL = 45 * time.Second
 
 // logf печатает строку журнала, не ломая однострочный HUD: тот перерисовывается
 // через \r, поэтому перед выводом затираем текущую строку.
@@ -779,15 +745,15 @@ var stdoutTTY = func() bool {
 	return err == nil && fi.Mode()&os.ModeCharDevice != 0
 }()
 
-// setUsers обновляет счётчик онлайна в HUD (в тестах HUD не поднят).
-func setUsers(n int) {
+// setOnline обновляет счётчик «на линии» в HUD (в тестах HUD не поднят).
+func setOnline(n int) {
 	if st != nil {
-		st.users.Store(int64(n))
+		st.online.Store(int64(n))
 	}
 }
 
 // shortID укорачивает идентификатор для журнала. Режем по рунам: сюда попадают
-// не только hex-идентификаторы, но и произвольные имена устройств.
+// не только hex-идентификаторы, но и произвольные отпечатки устройств.
 func shortID(key string) string {
 	r := []rune(key)
 	if len(r) > 8 {
@@ -796,8 +762,8 @@ func shortID(key string) string {
 	return key
 }
 
-// cleanName приводит имя клиента к виду, пригодному для журнала и списка:
-// без управляющих символов и не длиннее 32 рун. Пустое имя — клиент без -name.
+// cleanName приводит подпись ссылки к виду, пригодному для журнала и панели:
+// без управляющих символов и не длиннее 64 байт.
 func cleanName(s string) string {
 	s = strings.TrimSpace(s)
 	var b strings.Builder
@@ -813,93 +779,69 @@ func cleanName(s string) string {
 	return strings.TrimSpace(b.String())
 }
 
-// seat — занятый слот: один онлайн-клиент (весь его пул соединений и стримов).
-type seat struct {
-	name     string
-	remote   string
-	link     string // id ссылки, по которой пришёл клиент ("" — по паролю)
-	since    time.Time
-	lastSeen time.Time
-}
+// ============================ ДОСТУП ============================
+//
+// Единственная сущность — ссылка cdn://. Реестр ссылок на сервере авторитетен:
+// подключиться можно только по той ссылке, которая в реестре есть и не отозвана.
+// Подпись удостоверения (HMAC мастер-ключа) лишь подтверждает, что ссылку
+// выпускал владелец этого сервера; доступа сама по себе она не даёт. Поэтому
+// удалённая в панели ссылка мертва навсегда — переподключением её не воскресить.
+//
+// Владелец сервера ходит напрямую по мастер-ключу, ссылка ему не нужна.
 
-// rosterEntry — клиент, которого сервер видел хотя бы раз. Запись живёт и после
-// отключения: в списке пользователей такой клиент показывается как «офлайн».
-type rosterEntry struct {
-	Name   string `json:"name"`
-	Last   int64  `json:"last"`  // когда последний раз был онлайн, unix-секунды
-	Seen   int64  `json:"seen"`  // сколько раз подключался
-	First  int64  `json:"first"` // когда увидели впервые
-	Up     uint64 `json:"up"`    // отдано клиентом за всё время, байт
-	Down   uint64 `json:"down"`  // получено клиентом за всё время, байт
-	Banned bool   `json:"banned,omitempty"`
-}
-
-// userView — как клиент выглядит в ответе /users.
-type userView struct {
-	Name   string `json:"name"`
-	Online bool   `json:"online"`
-	Since  int64  `json:"since,omitempty"` // онлайн с какого времени
-	Last   int64  `json:"last"`            // когда видели в последний раз
-	Seen   int64  `json:"seen"`
-	Up     uint64 `json:"up"`
-	Down   uint64 `json:"down"`
-	Banned bool   `json:"banned,omitempty"`
-	Device string `json:"device,omitempty"` // устройство, за которым закреплена ссылка
-	Link   string `json:"link,omitempty"`   // id ссылки, если клиент пришёл по ней
-	IP     string `json:"ip,omitempty"`     // адрес, пока онлайн
-}
-
-// usersDoc — ответ /users: лимит, сколько сейчас онлайн и все известные клиенты.
-type usersDoc struct {
-	Limit  int        `json:"limit"` // 0 — без лимита
-	Online int        `json:"online"`
-	Users  []userView `json:"users"`
-}
-
-// linkRec — выпущенная ссылка. Реестр ведёт сервер: владелец видит все свои
-// ссылки (даже ни разу не использованные), их трафик и устройство, к которому
-// ссылка привязалась, и может отозвать любую.
+// linkRec — выпущенная ссылка: всё, что сервер помнит о ней между перезапусками.
 type linkRec struct {
 	ID       string `json:"id"`
-	Label    string `json:"label"`          // подпись: «Андрею», «ноут» и т.п.
-	Name     string `json:"name,omitempty"` // как назвался клиент, который ей пользуется
-	Created  int64  `json:"created"`
-	Device   string `json:"device,omitempty"` // "" — ссылка ещё не использована
+	Label    string `json:"label"`   // подпись: «Андрею», «ноут» и т.п.
+	Created  int64  `json:"created"` // когда выпущена, unix-секунды
+	Device   string `json:"device,omitempty"`
 	FirstUse int64  `json:"first_use,omitempty"`
 	LastUse  int64  `json:"last_use,omitempty"`
-	Up       uint64 `json:"up"`
-	Down     uint64 `json:"down"`
+	Up       uint64 `json:"up"`   // отдано по ссылке за всё время, байт
+	Down     uint64 `json:"down"` // получено по ссылке за всё время, байт
 	Revoked  bool   `json:"revoked,omitempty"`
+}
+
+// linkView — ссылка в ответе панели: запись из реестра плюс то, что известно
+// только сейчас, — на линии ли она и с какого адреса.
+type linkView struct {
+	linkRec
+	Online bool   `json:"online,omitempty"`
+	Since  int64  `json:"since,omitempty"` // на линии с какого времени
+	IP     string `json:"ip,omitempty"`
+}
+
+// live — соединение, идущее прямо сейчас.
+type live struct {
+	ip    string
+	since time.Time
+	last  time.Time
 }
 
 // serverState — то, что сервер хранит между перезапусками.
 type serverState struct {
-	Users []*rosterEntry `json:"users"`
-	Links []*linkRec     `json:"links"`
+	Links []*linkRec `json:"links"`
 }
 
-// userGate считает пользователей и (если задан -users) ограничивает их число.
-// Единица учёта — клиент целиком: у одного клиента пул из -conns соединений и
-// десятки параллельных стримов, и всё это один пользователь. Ключ слота — имя
-// (-name), а у безымянных клиентов — случайный идентификатор запуска.
-type userGate struct {
+// ownerKey — под этим ключом учитывается владелец, вошедший по мастер-ключу.
+// Не из hex-алфавита, поэтому с идентификатором ссылки не столкнётся.
+const ownerKey = "owner"
+
+// linkGate — реестр ссылок и учёт тех, кто сейчас на линии.
+type linkGate struct {
 	mu      sync.Mutex
-	limit   int // 0 — без ограничения, только учёт
-	seats   map[string]*seat
-	roster  map[string]*rosterEntry // имя → когда видели последний раз
-	lastLog map[string]time.Time    // троттлинг журнала отказов (клиент ретраится)
-	links   map[string]*linkRec     // id ссылки → всё, что о ней известно
-	path    string                  // файл состояния ("" — не сохранять)
-	dirty   bool                    // есть несохранённые изменения (счётчики трафика)
+	links   map[string]*linkRec  // id ссылки → всё, что о ней известно
+	live    map[string]*live     // id ссылки (или ownerKey) → живое соединение
+	lastLog map[string]time.Time // троттлинг журнала отказов: клиент ретраится
+	path    string               // файл состояния ("" — не сохранять)
+	dirty   bool                 // есть несохранённые счётчики трафика
 }
 
-func newUserGate(limit int) *userGate {
-	return &userGate{
-		limit:   limit,
-		seats:   map[string]*seat{},
-		roster:  map[string]*rosterEntry{},
-		lastLog: map[string]time.Time{},
+func newLinkGate() *linkGate {
+	return &linkGate{
 		links:   map[string]*linkRec{},
+		live:    map[string]*live{},
+		lastLog: map[string]time.Time{},
 	}
 }
 
@@ -918,35 +860,185 @@ func clientIP(r *http.Request) string {
 	return r.RemoteAddr
 }
 
-// seatKey определяет, кого считать одним пользователем: имя клиента, если оно
-// задано (-name), иначе идентификатор запуска, а у совсем старых клиентов без
-// заголовков — исходный IP. name — как показывать клиента в списке.
-func seatKey(r *http.Request) (key, name, remote string) {
-	remote = clientIP(r)
-	id := r.Header.Get(clientHeader)
-	name = cleanName(decodeName(r.Header.Get(nameHeader)))
-	// Клиент по ссылке — это сама ссылка: одна ссылка = один пользователь,
-	// как бы он ни назывался и с какого бы запуска ни пришёл.
-	if lid, ok := checkCred(authToken, r.Header.Get(linkHeader)); ok {
-		if name == "" {
-			name = "ссылка-" + shortID(lid)
-		}
-		return "link:" + lid, name, remote
+// Причины отказа: едут клиенту в теле ответа, он переводит их в STATUS-строки.
+const (
+	denyForbidden = "forbidden"     // ни мастер-ключа, ни верной подписи ссылки
+	denyUnknown   = "link unknown"  // ссылки нет в реестре — удалена владельцем
+	denyRevoked   = "link revoked"  // ссылка отозвана
+	denyUsed      = "link occupied" // ссылка занята другим устройством
+)
+
+// isOwner сверяет мастер-ключ в постоянное время. Сервер без пароля защищать
+// нечем: там владелец — кто угодно.
+func isOwner(r *http.Request) bool {
+	if authToken == "" {
+		return true
 	}
-	switch {
-	case name != "":
-		key = "name:" + strings.ToLower(name)
-	case id != "":
-		key, name = id, "гость-"+shortID(id)
-	default:
-		key, name = "ip:"+remote, "гость-"+remote
-	}
-	return key, name, remote
+	got := []byte(r.Header.Get(authHeader))
+	return subtle.ConstantTimeCompare(got, []byte(authToken)) == 1
 }
 
-// issueLink выпускает новую ссылку и заносит её в реестр: владелец увидит её в
-// админке сразу, ещё до того как ей кто-то воспользуется.
-func (g *userGate) issueLink(label string) *linkRec {
+// admit — единственная точка, решающая судьбу запроса. Возвращает ключ учёта
+// (по нему пишется трафик) и, при отказе, его причину.
+func (g *linkGate) admit(r *http.Request) (key string, ok bool, why string) {
+	if isOwner(r) {
+		g.seen(ownerKey, clientIP(r))
+		return ownerKey, true, ""
+	}
+	id, signed := checkCred(authToken, r.Header.Get(linkHeader))
+	if !signed {
+		return "", false, denyForbidden
+	}
+	return g.useLink(id, r.Header.Get(deviceHeader), clientIP(r))
+}
+
+// billKey — ключ учёта запроса без побочных эффектов: им подписываются стримы,
+// чтобы трафик лёг на нужную ссылку. Запрос к этому моменту уже пропущен admit.
+func billKey(r *http.Request) string {
+	if isOwner(r) {
+		return ownerKey
+	}
+	id, _ := checkCred(authToken, r.Header.Get(linkHeader))
+	return id
+}
+
+// useLink сверяет ссылку с реестром и, если всё в порядке, отмечает её живой.
+// Последнее слово здесь за реестром: верной подписи мало, запись должна быть.
+func (g *linkGate) useLink(id, device, ip string) (string, bool, string) {
+	if device == "" {
+		device = "unknown" // клиент без отпечатка: привяжем хотя бы к «неизвестному»
+	}
+	now := time.Now()
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	rec := g.links[id]
+	switch {
+	case rec == nil:
+		// Ссылку удалили в панели (или выпустил другой сервер): доступа нет, и
+		// заново запись не заводится — иначе удаление ничего бы не значило.
+		g.denyLog(now, "gone:"+id, "⛔ ссылка %s удалена — отказ (%s)", shortID(id), ip)
+		return "", false, denyUnknown
+	case rec.Revoked:
+		g.denyLog(now, "rev:"+id, "⛔ %s отозвана — отказ (%s)", linkTitle(rec), ip)
+		return "", false, denyRevoked
+	case rec.Device == "":
+		rec.Device, rec.FirstUse, rec.LastUse = device, now.Unix(), now.Unix()
+		logf("🔗 %s привязана к устройству %s", linkTitle(rec), shortID(device))
+		g.saveLocked()
+	case rec.Device != device:
+		g.denyLog(now, "dev:"+id, "⚠ %s занята другим устройством — отказ (%s)", linkTitle(rec), ip)
+		return "", false, denyUsed
+	default:
+		rec.LastUse = now.Unix()
+	}
+	g.seenLocked(id, ip)
+	return id, true, ""
+}
+
+// linkTitle — как называть ссылку в журнале: по подписи, если владелец её дал.
+func linkTitle(rec *linkRec) string {
+	if rec.Label != "" {
+		return "ссылка «" + rec.Label + "»"
+	}
+	return "ссылка " + shortID(rec.ID)
+}
+
+// titleLocked — название ключа учёта для журнала.
+func (g *linkGate) titleLocked(key string) string {
+	if key == ownerKey {
+		return "владелец"
+	}
+	if rec := g.links[key]; rec != nil {
+		return linkTitle(rec)
+	}
+	return "ссылка " + shortID(key)
+}
+
+// denyLog пишет отказ не чаще раза в 5 секунд на причину: отклонённый клиент
+// ретраится, и без троттлинга журнал заливает одинаковыми строками.
+func (g *linkGate) denyLog(now time.Time, key, format string, args ...any) {
+	if last, ok := g.lastLog[key]; ok && now.Sub(last) < 5*time.Second {
+		return
+	}
+	g.lastLog[key] = now
+	logf(format, args...)
+}
+
+// seen отмечает клиента живым (обёртка seenLocked под замком).
+func (g *linkGate) seen(key, ip string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.seenLocked(key, ip)
+}
+
+// seenLocked заводит запись о соединении при первом запросе и продлевает её на
+// каждом следующем.
+func (g *linkGate) seenLocked(key, ip string) {
+	now := time.Now()
+	g.expireLocked(now)
+	if l := g.live[key]; l != nil {
+		l.last, l.ip = now, ip
+		return
+	}
+	g.live[key] = &live{ip: ip, since: now, last: now}
+	setOnline(len(g.live))
+	logf("＋ подключение: %s (%s) — на линии %d", g.titleLocked(key), ip, len(g.live))
+}
+
+// expireLocked снимает с линии тех, кто замолчал дольше linkTTL.
+func (g *linkGate) expireLocked(now time.Time) {
+	for k, l := range g.live {
+		if now.Sub(l.last) > linkTTL {
+			delete(g.live, k)
+			logf("－ отключение: %s (простой > %s) — на линии %d", g.titleLocked(k), linkTTL, len(g.live))
+		}
+	}
+	for k, t := range g.lastLog {
+		if now.Sub(t) > time.Minute {
+			delete(g.lastLog, k)
+		}
+	}
+	setOnline(len(g.live))
+}
+
+// release снимает клиента с линии по его явному «прощанию» (/bye): после
+// перезапуска клиента панель не ждёт истечения linkTTL.
+func (g *linkGate) release(key string) {
+	if key == "" {
+		return
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if _, ok := g.live[key]; !ok {
+		return
+	}
+	title := g.titleLocked(key)
+	delete(g.live, key)
+	setOnline(len(g.live))
+	logf("－ отключение: %s — на линии %d", title, len(g.live))
+}
+
+// addTraffic приписывает прошедшие байты ссылке, по которой пришёл клиент.
+// Вызывается на каждом куске данных, поэтому без записи на диск: состояние
+// сбрасывает sweep раз в полминуты. Трафик владельца ссылке не принадлежит.
+func (g *linkGate) addTraffic(key string, up, down uint64) {
+	if key == "" || key == ownerKey || (up == 0 && down == 0) {
+		return
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if rec := g.links[key]; rec != nil {
+		rec.Up += up
+		rec.Down += down
+		g.dirty = true
+	}
+}
+
+// ---- управление ссылками (из панели) ----
+
+// issueLink выпускает ссылку и сразу заносит её в реестр: владелец видит её в
+// панели ещё до того, как ей кто-то воспользуется.
+func (g *linkGate) issueLink(label string) *linkRec {
 	b := make([]byte, 8)
 	rand.Read(b)
 	rec := &linkRec{ID: hex.EncodeToString(b), Label: cleanName(label), Created: time.Now().Unix()}
@@ -954,108 +1046,73 @@ func (g *userGate) issueLink(label string) *linkRec {
 	g.links[rec.ID] = rec
 	g.saveLocked()
 	g.mu.Unlock()
-	logf("🔗 выпущена ссылка %s%s", shortID(rec.ID), labelSuffix(rec.Label))
+	logf("🔗 выпущена %s", linkTitle(rec))
 	return rec
 }
 
-func labelSuffix(label string) string {
-	if label == "" {
-		return ""
-	}
-	return " («" + label + "»)"
-}
-
-// useLink решает судьбу запроса по ссылке: отозвана — «revoked», занята другим
-// устройством — «used», иначе привязывает (при первом использовании) и пускает.
-// Ссылка, выпущенная вне админки (флагом -share), заносится в реестр на лету,
-// чтобы владелец видел и мог отозвать вообще все ссылки.
-func (g *userGate) useLink(linkID, device, name string) (bool, string) {
-	if linkID == "" {
-		return true, ""
-	}
-	if device == "" {
-		device = "unknown" // клиент без отпечатка: привяжем хотя бы к «неизвестному»
-	}
-	now := time.Now()
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	rec := g.links[linkID]
-	if rec == nil {
-		rec = &linkRec{ID: linkID, Label: "вне админки", Created: now.Unix()}
-		g.links[linkID] = rec
-	}
-	if rec.Revoked {
-		if last, ok := g.lastLog["rev:"+linkID]; !ok || now.Sub(last) > 5*time.Second {
-			g.lastLog["rev:"+linkID] = now
-			logf("⛔ ссылка %s отозвана — «%s» отклонён", shortID(linkID), name)
-		}
-		return false, "revoked"
-	}
-	if rec.Device == "" {
-		rec.Device, rec.FirstUse, rec.LastUse = device, now.Unix(), now.Unix()
-		rec.Name = name
-		logf("🔗 ссылка %s%s привязана к устройству %s («%s»)",
-			shortID(linkID), labelSuffix(rec.Label), shortID(device), name)
-		g.saveLocked()
-		return true, ""
-	}
-	if rec.Device != device {
-		if last, ok := g.lastLog["link:"+linkID]; !ok || now.Sub(last) > 5*time.Second {
-			g.lastLog["link:"+linkID] = now
-			logf("⚠ ссылка %s%s уже привязана к другому устройству — «%s» отклонён",
-				shortID(linkID), labelSuffix(rec.Label), name)
-		}
-		return false, "used"
-	}
-	rec.LastUse = now.Unix()
-	if name != "" && rec.Name != name {
-		rec.Name = name
-		g.saveLocked()
-	}
-	return true, ""
-}
-
-// revokeLink отзывает ссылку: клиент по ней больше не подключится, запись
-// остаётся в реестре со счётчиками. dropAll=true — удалить запись совсем.
-func (g *userGate) revokeLink(id string, drop bool) bool {
+// setRevoked отзывает ссылку или возвращает её в строй. Отозванная остаётся в
+// реестре со счётчиками, но клиент по ней получает отказ.
+func (g *linkGate) setRevoked(id string, on bool) bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	rec := g.links[id]
 	if rec == nil {
 		return false
 	}
-	if drop {
-		delete(g.links, id)
+	rec.Revoked = on
+	if on {
+		g.dropLiveLocked(id)
+	}
+	g.saveLocked()
+	if on {
+		logf("🔗 %s отозвана — доступ закрыт", linkTitle(rec))
 	} else {
-		rec.Revoked = true
+		logf("🔗 %s снова активна", linkTitle(rec))
 	}
-	for k, s := range g.seats { // отключаем того, кто сидит по этой ссылке
-		if s.link == id {
-			delete(g.seats, k)
-		}
-	}
-	setUsers(len(g.seats))
-	g.saveLocked()
-	logf("🔗 ссылка %s %s", shortID(id), map[bool]string{true: "удалена", false: "отозвана"}[drop])
 	return true
 }
 
-// restoreLink снимает отзыв: ссылка снова рабочая (устройство остаётся прежним).
-func (g *userGate) restoreLink(id string) bool {
+// deleteLink стирает ссылку из реестра: доступ по ней закрыт навсегда, потому
+// что сервер пускает только то, что в реестре есть.
+func (g *linkGate) deleteLink(id string) bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	rec := g.links[id]
 	if rec == nil {
 		return false
 	}
-	rec.Revoked = false
+	delete(g.links, id)
+	g.dropLiveLocked(id)
 	g.saveLocked()
-	logf("🔗 ссылка %s снова активна", shortID(id))
+	logf("🔗 %s удалена — доступ по ней закрыт навсегда", linkTitle(rec))
 	return true
 }
 
-// unbindLink снимает привязку к устройству, оставляя ссылку рабочей.
-func (g *userGate) unbindLink(id string) bool {
+// dropLiveLocked снимает с линии того, кто сидит по этой ссылке.
+func (g *linkGate) dropLiveLocked(id string) {
+	if _, ok := g.live[id]; !ok {
+		return
+	}
+	delete(g.live, id)
+	setOnline(len(g.live))
+}
+
+// kickLink снимает клиента с линии, оставляя ссылку рабочей: он переподключится
+// сам — удобно, чтобы согнать зависшую сессию.
+func (g *linkGate) kickLink(id string) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if _, ok := g.live[id]; !ok {
+		return false
+	}
+	title := g.titleLocked(id)
+	g.dropLiveLocked(id)
+	logf("⏏ сброшено с линии администратором: %s", title)
+	return true
+}
+
+// unbindLink снимает привязку к устройству: ссылку можно открыть на другом.
+func (g *linkGate) unbindLink(id string) bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	rec := g.links[id]
@@ -1063,13 +1120,34 @@ func (g *userGate) unbindLink(id string) bool {
 		return false
 	}
 	rec.Device, rec.FirstUse = "", 0
+	g.dropLiveLocked(id)
 	g.saveLocked()
-	logf("🔗 ссылка %s отвязана от устройства — можно открыть на другом", shortID(id))
+	logf("🔗 %s отвязана от устройства — можно открыть на другом", linkTitle(rec))
 	return true
 }
 
+// unbindAll снимает привязки со всех ссылок сразу.
+func (g *linkGate) unbindAll() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	n := 0
+	for id, rec := range g.links {
+		if rec.Device == "" {
+			continue
+		}
+		rec.Device, rec.FirstUse = "", 0
+		g.dropLiveLocked(id)
+		n++
+	}
+	if n > 0 {
+		g.saveLocked()
+		logf("🔗 снято привязок: %d", n)
+	}
+	return n
+}
+
 // renameLink меняет подпись ссылки.
-func (g *userGate) renameLink(id, label string) bool {
+func (g *linkGate) renameLink(id, label string) bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	rec := g.links[id]
@@ -1081,357 +1159,102 @@ func (g *userGate) renameLink(id, label string) bool {
 	return true
 }
 
-// linkFor возвращает id ссылки, по которой пришёл запрос ("" — не по ссылке).
-func linkFor(r *http.Request) string {
-	id, _ := checkCred(authToken, r.Header.Get(linkHeader))
-	return id
-}
-
-// decodeName разворачивает имя из заголовка: оно едет percent-encoded, чтобы
-// кириллица и пробелы прошли через любые прокси и CDN.
-func decodeName(v string) string {
-	if v == "" {
-		return ""
-	}
-	if s, err := url.QueryUnescape(v); err == nil {
-		return s
-	}
-	return v
-}
-
-// admit продлевает уже занятый слот либо выдаёт новый. false — все слоты заняты
-// живыми клиентами (только при -users > 0); запрос надо отклонить.
-func (g *userGate) admit(key, name, remote string) (bool, string) {
+// view собирает реестр для панели: на линии — сверху, дальше по свежести.
+func (g *linkGate) view() (out []linkView, online int) {
 	now := time.Now()
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.expireLocked(now)
-	if e := g.roster[name]; e != nil && e.Banned {
-		if last, ok := g.lastLog["ban:"+name]; !ok || now.Sub(last) > 30*time.Second {
-			g.lastLog["ban:"+name] = now
-			logf("⛔ «%s» (%s) заблокирован — доступ запрещён", name, remote)
-		}
-		return false, "banned"
-	}
-	if s := g.seats[key]; s != nil {
-		s.lastSeen = now
-		g.seeLocked(name, now, false)
-		return true, ""
-	}
-	if g.limit > 0 && len(g.seats) >= g.limit {
-		if last, ok := g.lastLog[key]; !ok || now.Sub(last) > 5*time.Second {
-			g.lastLog[key] = now
-			logf("⚠ отказ: достигнуто максимальное число подключений %d/%d — «%s» (%s) отклонён",
-				len(g.seats), g.limit, name, remote)
-		}
-		return false, "limit"
-	}
-	link := strings.TrimPrefix(key, "link:")
-	if link == key {
-		link = ""
-	}
-	g.seats[key] = &seat{name: name, remote: remote, link: link, since: now, lastSeen: now}
-	g.seeLocked(name, now, true)
-	setUsers(len(g.seats))
-	logf("＋ «%s» (%s) подключился — онлайн %s", name, remote, g.gaugeLocked())
-	g.saveLocked()
-	return true, ""
-}
-
-// touch продлевает уже занятый слот, не выдавая новый (для запросов, которые
-// слот не занимают, — например опроса списка пользователей).
-func (g *userGate) touch(key string) {
-	now := time.Now()
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	if s := g.seats[key]; s != nil {
-		s.lastSeen = now
-		g.seeLocked(s.name, now, false)
-	}
-	g.expireLocked(now)
-}
-
-// seeLocked отмечает клиента в списке известных (онлайн он или только что был).
-func (g *userGate) seeLocked(name string, now time.Time, fresh bool) {
-	if name == "" {
-		return
-	}
-	e := g.roster[name]
-	if e == nil {
-		e = &rosterEntry{Name: name, First: now.Unix()}
-		g.roster[name] = e
-	}
-	e.Last = now.Unix()
-	if fresh {
-		e.Seen++
-	}
-}
-
-// addTraffic приписывает прошедшие байты тому клиенту, чей это стрим.
-// Вызывается на каждом куске данных, поэтому без записи на диск: файл состояния
-// сохраняется периодически (sweep) и на подключении/отключении.
-func (g *userGate) addTraffic(key string, up, down uint64) {
-	if key == "" || (up == 0 && down == 0) {
-		return
-	}
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	s := g.seats[key]
-	if s == nil {
-		return
-	}
-	if e := g.roster[s.name]; e != nil {
-		e.Up += up
-		e.Down += down
-	}
-	if rec := g.links[s.link]; rec != nil { // сколько «съела» конкретная ссылка
-		rec.Up += up
-		rec.Down += down
-	}
-	g.dirty = true
-}
-
-// banned сообщает, заблокирован ли клиент (проверка до выдачи слота).
-func (g *userGate) setBan(name string, on bool) bool {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	e := g.roster[name]
-	if e == nil {
-		return false
-	}
-	e.Banned = on
-	if on {
-		for k, s := range g.seats { // заблокированного сразу отключаем
-			if s.name == name {
-				delete(g.seats, k)
-			}
-		}
-		setUsers(len(g.seats))
-	}
-	g.saveLocked()
-	return true
-}
-
-// kick снимает клиента с линии: слот освобождается, клиент переподключится
-// (если не забанен) — удобно, чтобы согнать зависшую сессию.
-func (g *userGate) kick(name string) bool {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	found := false
-	for k, s := range g.seats {
-		if s.name == name {
-			delete(g.seats, k)
-			found = true
-		}
-	}
-	if found {
-		setUsers(len(g.seats))
-		logf("⏏ «%s» отключён администратором", name)
-	}
-	return found
-}
-
-// unbind снимает привязку ссылки к устройству: по id ссылки, по имени клиента
-// или все сразу. Возвращает, сколько привязок снято.
-func (g *userGate) unbind(linkID, name string, all bool) int {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	n := 0
 	for id, rec := range g.links {
-		if all || (linkID != "" && id == linkID) || (name != "" && rec.Name == name) {
-			rec.Device, rec.FirstUse = "", 0
-			n++
+		v := linkView{linkRec: *rec}
+		if l := g.live[id]; l != nil {
+			v.Online, v.Since, v.IP, v.LastUse = true, l.since.Unix(), l.ip, now.Unix()
 		}
+		out = append(out, v)
 	}
-	if n > 0 {
-		logf("🔗 снято привязок ссылок: %d — можно зайти с другого устройства", n)
-		g.saveLocked()
-	}
-	return n
-}
-
-// forget убирает клиента из списка целиком (вместе со счётчиками трафика).
-func (g *userGate) forget(name string) bool {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	if _, ok := g.roster[name]; !ok {
-		return false
-	}
-	delete(g.roster, name)
-	for k, s := range g.seats {
-		if s.name == name {
-			delete(g.seats, k)
+	online = len(g.live)
+	sort.Slice(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		if a.Online != b.Online {
+			return a.Online
 		}
-	}
-	for _, rec := range g.links {
-		if rec.Name == name {
-			rec.Device, rec.Name, rec.FirstUse = "", "", 0
+		if a.LastUse != b.LastUse {
+			return a.LastUse > b.LastUse
 		}
-	}
-	setUsers(len(g.seats))
-	g.saveLocked()
-	return true
-}
-
-// setLimit меняет лимит одновременных клиентов на ходу (без перезапуска).
-func (g *userGate) setLimit(n int) {
-	if n < 0 {
-		n = 0
-	}
-	g.mu.Lock()
-	g.limit = n
-	g.mu.Unlock()
-	maxUsers.Store(int64(n))
-	logf("Лимит одновременных клиентов изменён: %d", n)
-}
-
-// expireLocked освобождает слоты клиентов, замолчавших дольше seatTTL.
-func (g *userGate) expireLocked(now time.Time) {
-	for k, s := range g.seats {
-		if now.Sub(s.lastSeen) > seatTTL {
-			delete(g.seats, k)
-			g.seeLocked(s.name, s.lastSeen, false)
-			logf("－ «%s» (%s) отключился (простой > %s) — онлайн %s",
-				s.name, s.remote, seatTTL, g.gaugeLocked())
-			g.saveLocked()
-		}
-	}
-	for k, t := range g.lastLog {
-		if now.Sub(t) > time.Minute {
-			delete(g.lastLog, k)
-		}
-	}
-	setUsers(len(g.seats))
-}
-
-// release освобождает слот по явному «прощанию» клиента (/bye) — после
-// перезапуска клиент не ждёт истечения seatTTL.
-func (g *userGate) release(key string) {
-	now := time.Now()
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	s, ok := g.seats[key]
-	if !ok {
-		return
-	}
-	delete(g.seats, key)
-	g.seeLocked(s.name, now, false)
-	setUsers(len(g.seats))
-	logf("－ «%s» (%s) отключился — онлайн %s", s.name, s.remote, g.gaugeLocked())
-	g.saveLocked()
-}
-
-// gauge возвращает «онлайн/лимит» для заголовка X-Tunnel-Users (лимит 0 — без
-// ограничения, клиент показывает просто число).
-func (g *userGate) gauge() string {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	return g.gaugeLocked()
-}
-
-func (g *userGate) gaugeLocked() string {
-	return fmt.Sprintf("%d/%d", len(g.seats), g.limit)
-}
-
-// doc собирает список клиентов с отметкой «онлайн/офлайн». full=true (админка)
-// добавляет трафик, адреса и устройства; клиентам туннеля этого не показываем —
-// им достаточно знать, кто сейчас на сервере.
-func (g *userGate) doc(full bool) usersDoc {
-	now := time.Now()
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.expireLocked(now)
-	online := map[string]*seat{}
-	for _, s := range g.seats {
-		online[s.name] = s
-	}
-	deviceOf := map[string]*linkRec{}
-	for _, rec := range g.links {
-		if rec.Name != "" && rec.Device != "" {
-			deviceOf[rec.Name] = rec
-		}
-	}
-	d := usersDoc{Limit: g.limit, Online: len(g.seats)}
-	for name, e := range g.roster {
-		v := userView{Name: name, Last: e.Last, Seen: e.Seen, Banned: e.Banned}
-		if full {
-			v.Up, v.Down = e.Up, e.Down
-			if b, ok := deviceOf[name]; ok {
-				v.Device, v.Link = b.Device, b.ID
-			}
-		}
-		if s, ok := online[name]; ok {
-			v.Online, v.Since, v.Last = true, s.since.Unix(), now.Unix()
-			if full {
-				v.IP = s.remote
-				if s.link != "" {
-					v.Link = s.link
-				}
-			}
-		}
-		d.Users = append(d.Users, v)
-	}
-	// Онлайн — сверху, дальше по свежести: список читают сверху вниз.
-	sort.Slice(d.Users, func(i, j int) bool {
-		if d.Users[i].Online != d.Users[j].Online {
-			return d.Users[i].Online
-		}
-		if d.Users[i].Last != d.Users[j].Last {
-			return d.Users[i].Last > d.Users[j].Last
-		}
-		return d.Users[i].Name < d.Users[j].Name
+		return a.Created > b.Created
 	})
-	return d
+	return out, online
 }
 
-// ---- сохранение списка клиентов между перезапусками сервера ----
+// ---- сохранение реестра между перезапусками ----
 
-// loadRoster поднимает список известных клиентов с диска: сервис перезапускается
-// (в том числе по RuntimeMaxSec), а «офлайн»-клиенты должны остаться в списке.
-func (g *userGate) loadRoster(path string) {
+// loadLinks поднимает реестр с диска: сервис перезапускается (в том числе по
+// RuntimeMaxSec), а выпущенные ссылки и их счётчики должны пережить это.
+func (g *linkGate) loadLinks(path string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.path = path
 	if path == "" {
 		return
 	}
-	b, err := os.ReadFile(path)
+	// openState создаёт файл при старте, так что пустой файл — норма.
+	if b, err := os.ReadFile(path); err == nil {
+		g.addLinksLocked(b)
+	}
+	logf("Реестр загружен: ссылок %d (%s)", len(g.links), path)
+	g.migrateLegacyLocked(path)
+}
+
+// migrateLegacyLocked переносит ссылки из реестра сервера версии 1.x: тот
+// хранил их вместе со списком клиентов в users.json. Перенос одноразовый —
+// старый файл сразу переименовывается. Иначе удалённая владельцем ссылка
+// воскресала бы при каждом перезапуске, а это ровно то, от чего мы ушли.
+func (g *linkGate) migrateLegacyLocked(path string) {
+	legacy := filepath.Join(filepath.Dir(path), "users.json")
+	if legacy == path {
+		return
+	}
+	b, err := os.ReadFile(legacy)
 	if err != nil {
 		return
 	}
-	var st serverState
-	if json.Unmarshal(b, &st) != nil {
-		// Файл старого образца — просто список клиентов.
-		var list []*rosterEntry
-		if json.Unmarshal(b, &list) != nil {
-			return
-		}
-		st.Users = list
+	added := g.addLinksLocked(b)
+	if added > 0 {
+		g.saveLocked()
+		logf("Перенесено ссылок из реестра прежней версии: %d (%s)", added, legacy)
 	}
-	for _, e := range st.Users {
-		if e != nil && e.Name != "" {
-			g.roster[e.Name] = e
-		}
+	// Файл отработал — убираем, чтобы он больше никогда не участвовал в загрузке.
+	if os.Rename(legacy, legacy+".migrated") == nil && added == 0 {
+		logf("Реестр прежней версии (%s) пуст — отложен", legacy)
 	}
-	for _, l := range st.Links {
-		if l != nil && l.ID != "" {
-			g.links[l.ID] = l
-		}
-	}
-	logf("Состояние загружено: клиентов %d, привязанных ссылок %d (%s)", len(g.roster), len(g.links), path)
 }
 
-func (g *userGate) saveLocked() {
+// addLinksLocked добавляет в реестр ссылки из JSON, не трогая уже известные.
+// Возвращает, сколько записей добавилось.
+func (g *linkGate) addLinksLocked(b []byte) int {
+	if len(bytes.TrimSpace(b)) == 0 {
+		return 0
+	}
+	var stt serverState
+	if json.Unmarshal(b, &stt) != nil {
+		return 0
+	}
+	n := 0
+	for _, l := range stt.Links {
+		if l == nil || l.ID == "" || g.links[l.ID] != nil {
+			continue
+		}
+		g.links[l.ID] = l
+		n++
+	}
+	return n
+}
+
+func (g *linkGate) saveLocked() {
 	if g.path == "" {
 		return
 	}
-	stt := serverState{
-		Users: make([]*rosterEntry, 0, len(g.roster)),
-		Links: make([]*linkRec, 0, len(g.links)),
-	}
-	for _, e := range g.roster {
-		stt.Users = append(stt.Users, e)
-	}
+	stt := serverState{Links: make([]*linkRec, 0, len(g.links))}
 	for _, l := range g.links {
 		stt.Links = append(stt.Links, l)
 	}
@@ -1445,16 +1268,16 @@ func (g *userGate) saveLocked() {
 	}
 }
 
-// sweep освобождает протухшие слоты и без входящих запросов, чтобы список
-// онлайна не врал, пока сервер простаивает.
-func (g *userGate) sweep() {
+// sweep снимает с линии протухших и без входящих запросов, чтобы панель не
+// врала, пока сервер простаивает, и сбрасывает счётчики трафика на диск.
+func (g *linkGate) sweep() {
 	tick := time.NewTicker(5 * time.Second)
 	defer tick.Stop()
 	saveEvery := 0
 	for range tick.C {
 		g.mu.Lock()
 		g.expireLocked(time.Now())
-		// Счётчики трафика сбрасываем на диск раз в полминуты, а не на каждом килобайте.
+		// Счётчики пишем раз в полминуты, а не на каждом килобайте.
 		if saveEvery++; saveEvery >= 6 && g.dirty {
 			saveEvery = 0
 			g.dirty = false
@@ -1464,23 +1287,10 @@ func (g *userGate) sweep() {
 	}
 }
 
-// handleUsers отдаёт список пользователей (кто онлайн, кто офлайн). Слот не
-// занимает и лимитом не отклоняется: это справочная ручка для приложения.
-func (g *userGate) handleUsers(w http.ResponseWriter, r *http.Request) {
-	b, err := json.Marshal(g.doc(false))
-	if err != nil {
-		http.Error(w, "encode failed", http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("X-Accel-Buffering", "no")
-	w.Write(b)
-}
-
-// ============================ АДМИНКА ============================
+// ============================ ПАНЕЛЬ ============================
 //
-// Ручки /admin/* — для владельца сервера: они требуют мастер-пароль (-password)
-// и удостоверением ссылки не открываются. Приложение ходит в них по SSH через
+// Ручки /admin/* — для владельца сервера: они требуют мастер-ключ (-password) и
+// удостоверением ссылки не открываются. Приложение ходит в них по SSH через
 // curl на localhost, поэтому наружу их светить не нужно.
 
 const adminPath = "/admin"
@@ -1489,45 +1299,51 @@ const adminPath = "/admin"
 type adminDoc struct {
 	Version  string     `json:"version"`
 	Uptime   int64      `json:"uptime"` // секунд с запуска
-	Limit    int        `json:"limit"`
-	Online   int        `json:"online"`
-	SeatTTL  int        `json:"seat_ttl"`
+	Online   int        `json:"online"` // сколько сейчас на линии
+	LinkTTL  int        `json:"link_ttl"`
 	Streams  int        `json:"streams"`
 	UDP      int        `json:"udp"`
 	Up       uint64     `json:"up"`    // всего вверх с момента запуска
 	Down     uint64     `json:"down"`  // всего вниз с момента запуска
 	Total    int64      `json:"total"` // всего соединений с запуска
 	Method   string     `json:"method"`
-	Password bool       `json:"password"` // включён ли пароль
-	State    string     `json:"state"`    // файл состояния ("" — не сохраняется)
-	Users    []userView `json:"users"`
-	Links    []linkRec  `json:"links"`
+	Password bool       `json:"password"` // задан ли мастер-ключ
+	State    string     `json:"state"`    // файл реестра ("" — не сохраняется)
+	Links    []linkView `json:"links"`
 }
 
 // serverVersion — версия серверной части. Приложение сверяет её со своей и
 // подсказывает обновить сервер, если он старее, чем ручки, которые оно зовёт.
-const serverVersion = "1.4"
+const serverVersion = "2.0"
 
 var serverStarted = time.Now()
 
-// isAdmin пропускает только владельца: сверка мастер-пароля в постоянное время.
-func isAdmin(r *http.Request) bool {
-	if authToken == "" {
-		return true // сервер без пароля — защищать нечем
+// adminDoc собирает полный снимок: реестр ссылок и состояние самого сервера.
+func (g *linkGate) adminDoc(ts *tunnelServer) adminDoc {
+	d := adminDoc{
+		Version:  serverVersion,
+		Uptime:   int64(time.Since(serverStarted).Seconds()),
+		LinkTTL:  int(linkTTL / time.Second),
+		Method:   serverMethod,
+		Password: authToken != "",
+		State:    statePath,
 	}
-	got := []byte(r.Header.Get(authHeader))
-	return subtle.ConstantTimeCompare(got, []byte(authToken)) == 1
+	if st != nil {
+		d.Up, d.Down, d.Total = st.up.Load(), st.down.Load(), st.total.Load()
+	}
+	if ts != nil {
+		ts.mu.Lock()
+		d.Streams, d.UDP = len(ts.streams), len(ts.udp)
+		ts.mu.Unlock()
+	}
+	d.Links, d.Online = g.view()
+	return d
 }
 
-// routeAdmin вешает ручки управления сервером.
-func (g *userGate) routeAdmin(mux *http.ServeMux, ts *tunnelServer) {
+// routeAdmin вешает ручки управления. Мастер-ключ уже проверен в middleware.
+func (g *linkGate) routeAdmin(mux *http.ServeMux, ts *tunnelServer) {
 	mux.HandleFunc(adminPath, func(w http.ResponseWriter, r *http.Request) {
-		if !isAdmin(r) {
-			http.Error(w, "forbidden", http.StatusForbidden)
-			return
-		}
-		d := g.adminDoc(ts)
-		b, err := json.Marshal(d)
+		b, err := json.Marshal(g.adminDoc(ts))
 		if err != nil {
 			http.Error(w, "encode failed", http.StatusInternalServerError)
 			return
@@ -1536,51 +1352,33 @@ func (g *userGate) routeAdmin(mux *http.ServeMux, ts *tunnelServer) {
 		w.Write(b)
 	})
 
-	// Действия: kick / ban / unban / unbind / forget / limit.
 	mux.HandleFunc(adminPath+"/", func(w http.ResponseWriter, r *http.Request) {
-		if !isAdmin(r) {
-			http.Error(w, "forbidden", http.StatusForbidden)
-			return
-		}
 		q := r.URL.Query()
-		name := cleanName(decodeName(q.Get("name")))
+		id := q.Get("id")
 		action := strings.TrimPrefix(r.URL.Path, adminPath+"/")
 		res := map[string]any{"ok": true, "action": action}
 		switch action {
-		case "kick":
-			res["ok"] = g.kick(name)
-		case "ban":
-			res["ok"] = g.setBan(name, true)
-			g.kick(name)
-		case "unban":
-			res["ok"] = g.setBan(name, false)
-		case "unbind":
-			res["unbound"] = g.unbind(q.Get("link"), name, q.Get("all") == "1")
-		case "forget":
-			res["ok"] = g.forget(name)
 		case "link/new":
 			rec := g.issueLink(q.Get("label"))
 			res["id"] = rec.ID
 			res["cred"] = rec.ID + "." + credMAC(authToken, rec.ID)
 			res["label"] = rec.Label
 		case "link/revoke":
-			res["ok"] = g.revokeLink(q.Get("id"), false)
-		case "link/delete":
-			res["ok"] = g.revokeLink(q.Get("id"), true)
+			res["ok"] = g.setRevoked(id, true)
 		case "link/restore":
-			res["ok"] = g.restoreLink(q.Get("id"))
+			res["ok"] = g.setRevoked(id, false)
+		case "link/delete":
+			res["ok"] = g.deleteLink(id)
 		case "link/unbind":
-			res["ok"] = g.unbindLink(q.Get("id"))
-		case "link/rename":
-			res["ok"] = g.renameLink(q.Get("id"), q.Get("label"))
-		case "limit":
-			n, err := strconv.Atoi(q.Get("n"))
-			if err != nil {
-				http.Error(w, "bad n", http.StatusBadRequest)
-				return
+			if q.Get("all") == "1" {
+				res["unbound"] = g.unbindAll()
+			} else {
+				res["ok"] = g.unbindLink(id)
 			}
-			g.setLimit(n)
-			res["limit"] = n
+		case "link/kick":
+			res["ok"] = g.kickLink(id)
+		case "link/rename":
+			res["ok"] = g.renameLink(id, q.Get("label"))
 		default:
 			// Обычно это значит, что на сервере более старая сборка, чем в
 			// приложении: пишем прямо, а не загадочное «unknown action».
@@ -1594,95 +1392,41 @@ func (g *userGate) routeAdmin(mux *http.ServeMux, ts *tunnelServer) {
 	})
 }
 
-// adminDoc собирает полный снимок: список клиентов с трафиком, привязки ссылок
-// и состояние самого сервера.
-func (g *userGate) adminDoc(ts *tunnelServer) adminDoc {
-	d := adminDoc{
-		Version:  serverVersion,
-		Uptime:   int64(time.Since(serverStarted).Seconds()),
-		SeatTTL:  int(seatTTL / time.Second),
-		Method:   serverMethod,
-		Password: authToken != "",
-		State:    statePath,
+// denyReply отвечает отказом. Причина едет текстом: клиент по ней печатает
+// STATUS-строку, которую читает Android-обёртка.
+func denyReply(w http.ResponseWriter, why string) {
+	code := http.StatusForbidden
+	if why == denyUsed {
+		code = http.StatusConflict
 	}
-	if st != nil {
-		d.Up, d.Down, d.Total = st.up.Load(), st.down.Load(), st.total.Load()
-	}
-	if ts != nil {
-		ts.mu.Lock()
-		d.Streams, d.UDP = len(ts.streams), len(ts.udp)
-		ts.mu.Unlock()
-	}
-	users := g.doc(true)
-	d.Limit, d.Online, d.Users = users.Limit, users.Online, users.Users
-	g.mu.Lock()
-	for _, rec := range g.links {
-		d.Links = append(d.Links, *rec)
-	}
-	g.mu.Unlock()
-	// Свежие сверху: сначала по последнему использованию, потом по дате выпуска.
-	sort.Slice(d.Links, func(i, j int) bool {
-		a, b := d.Links[i], d.Links[j]
-		if a.LastUse != b.LastUse {
-			return a.LastUse > b.LastUse
-		}
-		return a.Created > b.Created
-	})
-	return d
+	http.Error(w, why, code)
 }
 
-// middleware считает пользователей и, при -users > 0, отклоняет лишних.
-// Корень "/" слот не занимает: он отвечает всем, чтобы сервер выглядел обычным
-// origin для CDN и сканеров.
-func (g *userGate) middleware(next http.Handler) http.Handler {
+// middleware решает доступ к каждому запросу и ведёт учёт. Корень "/" открыт
+// всем: сервер должен выглядеть обычным origin для CDN и сканеров.
+func (g *linkGate) middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
 			next.ServeHTTP(w, r)
 			return
 		}
-		key, name, remote := seatKey(r)
-		switch r.URL.Path {
-		case "/bye":
-			g.release(key)
-			w.Header().Set(usersHeader, g.gauge())
-			next.ServeHTTP(w, r)
-			return
-		case usersPath:
-			g.touch(key) // опрос списка продлевает слот, но не занимает новый
-			w.Header().Set(usersHeader, g.gauge())
-			next.ServeHTTP(w, r)
-			return
-		}
-		// Админка — не клиент туннеля: слот не занимает и под лимит не попадает.
+		// Панель — только мастер-ключ: удостоверением ссылки не открывается и
+		// на линии не учитывается, это не клиент туннеля.
 		if r.URL.Path == adminPath || strings.HasPrefix(r.URL.Path, adminPath+"/") {
-			next.ServeHTTP(w, r)
-			return
-		}
-		// Ссылка работает на одном устройстве и может быть отозвана владельцем.
-		if lid := linkFor(r); lid != "" {
-			if ok, why := g.useLink(lid, r.Header.Get(deviceHeader), name); !ok {
-				w.Header().Set(usersHeader, g.gauge())
-				if why == "revoked" {
-					http.Error(w, "link revoked", http.StatusForbidden)
-				} else {
-					http.Error(w, "link already used on another device", http.StatusConflict)
-				}
+			if !isOwner(r) {
+				http.Error(w, denyForbidden, http.StatusForbidden)
 				return
 			}
+			next.ServeHTTP(w, r)
+			return
 		}
-		ok, why := g.admit(key, name, remote)
-		// Счётчик едет на любом ответе, в том числе на отказе: клиент показывает
-		// его в прямом эфире, не опрашивая сервер отдельной ручкой.
-		w.Header().Set(usersHeader, g.gauge())
-		switch {
-		case ok:
-		case why == "banned":
-			http.Error(w, "banned", http.StatusForbidden)
+		key, ok, why := g.admit(r)
+		if !ok {
+			denyReply(w, why)
 			return
-		default:
-			w.Header().Set("Retry-After", "5")
-			http.Error(w, fmt.Sprintf("user limit %d/%d", g.limit, g.limit), http.StatusTooManyRequests)
-			return
+		}
+		if r.URL.Path == "/bye" {
+			g.release(key)
 		}
 		next.ServeHTTP(w, r)
 	})
@@ -1692,21 +1436,21 @@ type tunnelServer struct {
 	mu      sync.Mutex
 	streams map[string]*stream
 	udp     map[string]*udpSession
-	gate    *userGate // учёт трафика по клиентам (может быть nil в тестах)
+	gate    *linkGate // учёт трафика по ссылкам (может быть nil в тестах)
 }
 
-// bill приписывает байты клиенту, которому принадлежит стрим.
-func (t *tunnelServer) bill(user string, up, down uint64) {
+// bill приписывает байты ссылке, которой принадлежит стрим.
+func (t *tunnelServer) bill(key string, up, down uint64) {
 	if t.gate != nil {
-		t.gate.addTraffic(user, up, down)
+		t.gate.addTraffic(key, up, down)
 	}
 }
 
 func runServer(addr string) {
 	st = &stats{role: "server"}
 	st.connected.Store(true)
-	gate := newUserGate(int(maxUsers.Load()))
-	gate.loadRoster(openState(statePath))
+	gate := newLinkGate()
+	gate.loadLinks(openState(statePath))
 	ts := &tunnelServer{
 		streams: make(map[string]*stream),
 		udp:     make(map[string]*udpSession),
@@ -1723,30 +1467,21 @@ func runServer(addr string) {
 	mux.HandleFunc("/u/down", ts.handleUDPDown)
 	mux.HandleFunc("/u/send", ts.handleUDPSend)
 	mux.HandleFunc("/u/close", ts.handleUDPClose)
-	// Клиент зовёт /bye при завершении — слот -users освобождается сразу.
+	// Клиент зовёт /bye при завершении — ссылка сразу уходит с линии.
 	mux.HandleFunc("/bye", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("tunnel server ok\n"))
 	})
 
-	// Учёт пользователей включён всегда (список «кто онлайн»), а -users при
-	// значении > 0 ещё и ограничивает их число.
-	mux.HandleFunc(usersPath, gate.handleUsers)
 	gate.routeAdmin(mux, ts)
+	// middleware — единственная проверка доступа: мастер-ключ владельца либо
+	// ссылка, которая есть в реестре и не отозвана.
 	var handler http.Handler = gate.middleware(mux)
 	go gate.sweep()
-	if maxUsers.Load() > 0 {
-		fmt.Printf("Лимит одновременных клиентов: %d (слот освобождается через %s простоя или по /bye)\n", maxUsers.Load(), seatTTL)
-	} else {
-		fmt.Println("Лимит клиентов не задан (-users 0) — подключиться может любое число клиентов.")
-	}
-	// Проверка пароля — снаружи учёта: чужак с неверным паролем не должен
-	// попадать в список пользователей и отнимать слот.
 	if authToken != "" {
-		handler = authMiddleware(handler)
-		fmt.Println("Доступ защищён паролем (-password): клиенты без верного пароля будут отклонены (403).")
+		fmt.Printf("Доступ: мастер-ключ владельца или выпущенная ссылка (ссылка уходит с линии через %s молчания или по /bye).\n", linkTTL)
 	} else {
-		fmt.Println("ВНИМАНИЕ: пароль не задан (-password пуст) — туннель открыт для всех, кто знает адрес.")
+		fmt.Println("ВНИМАНИЕ: мастер-ключ не задан (-password пуст) — туннель открыт для всех, кто знает адрес, и ссылки выпускать нечем.")
 	}
 	fmt.Printf("Приём данных вверх методом: %s (транспорт stream/chunked определяется клиентом)\n", serverMethod)
 	if idleTimeout > 0 {
@@ -1771,12 +1506,12 @@ func openState(path string) string {
 		return ""
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		fmt.Printf("Список клиентов не сохраняется (%v)\n", err)
+		fmt.Printf("Реестр ссылок не сохраняется (%v)\n", err)
 		return ""
 	}
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
-		fmt.Printf("Список клиентов не сохраняется (%v)\n", err)
+		fmt.Printf("Реестр ссылок не сохраняется (%v)\n", err)
 		return ""
 	}
 	f.Close()
@@ -1787,26 +1522,6 @@ func openState(path string) string {
 // кроме корня "/" (он отдаёт безобидный текст — так сервер выглядит как обычный
 // origin для CDN и случайных сканеров). Сравнение — в постоянное время, чтобы
 // не утекала длина/содержимое пароля через тайминг.
-func authMiddleware(next http.Handler) http.Handler {
-	want := []byte(authToken)
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/" {
-			next.ServeHTTP(w, r)
-			return
-		}
-		got := []byte(r.Header.Get(authHeader))
-		okPass := subtle.ConstantTimeCompare(got, want) == 1
-		// Клиент по ссылке мастер-пароля не знает: он предъявляет удостоверение
-		// ссылки, подписанное этим же паролем.
-		_, okLink := checkCred(authToken, r.Header.Get(linkHeader))
-		if !okPass && !okLink {
-			http.Error(w, "forbidden", http.StatusForbidden)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
 func handleHello(w http.ResponseWriter, r *http.Request) {
 	if !methodAllowed(r) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -1841,8 +1556,7 @@ func (t *tunnelServer) handleConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tuneConn(conn)
-	owner, _, _ := seatKey(r)
-	s := &stream{user: owner, id: id, conn: conn, down: make(chan []byte, 1024), done: make(chan struct{}), upBuf: make(map[uint64][]byte)}
+	s := &stream{user: billKey(r), id: id, conn: conn, down: make(chan []byte, 1024), done: make(chan struct{}), upBuf: make(map[uint64][]byte)}
 	s.upCond = sync.NewCond(&s.upMu)
 	s.touch()
 	t.mu.Lock()
@@ -2007,8 +1721,7 @@ func (t *tunnelServer) handleUDPOpen(w http.ResponseWriter, r *http.Request) {
 	}
 	pc.SetReadBuffer(4 << 20)
 	pc.SetWriteBuffer(4 << 20)
-	owner, _, _ := seatKey(r)
-	u := &udpSession{user: owner, id: id, pc: pc, down: make(chan []byte, 4096), done: make(chan struct{})}
+	u := &udpSession{user: billKey(r), id: id, pc: pc, down: make(chan []byte, 4096), done: make(chan struct{})}
 	t.mu.Lock()
 	t.udp[id] = u
 	t.mu.Unlock()
@@ -2147,68 +1860,8 @@ func (a authRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 	if id == "" {
 		id = clientID
 	}
-	r.Header.Set(clientHeader, id) // единица учёта для лимита -users
-	if clientName != "" {
-		// Кириллица и пробелы в заголовке — только percent-encoded.
-		r.Header.Set(nameHeader, url.QueryEscape(clientName))
-	}
-	resp, err := a.base.RoundTrip(r)
-	if resp != nil {
-		noteUsers(resp.Header.Get(usersHeader))
-	}
-	return resp, err
-}
-
-// Последнее известное состояние лимита на сервере ("занято/лимит"). Приходит
-// заголовком на каждом ответе, поэтому под нагрузкой обновляется мгновенно.
-var (
-	usersMu    sync.Mutex
-	usersNow   int
-	usersLimit int
-	usersKnown bool
-)
-
-// noteUsers разбирает заголовок X-Tunnel-Users и, если число подключённых
-// изменилось, печатает событие: строку USERS n/m для Android-обёртки или
-// человекочитаемую строку в терминал.
-func noteUsers(h string) {
-	i := strings.IndexByte(h, '/')
-	if i <= 0 {
-		return
-	}
-	n, err1 := strconv.Atoi(h[:i])
-	lim, err2 := strconv.Atoi(h[i+1:])
-	if err1 != nil || err2 != nil {
-		return
-	}
-	usersMu.Lock()
-	changed := !usersKnown || n != usersNow || lim != usersLimit
-	prev := usersNow
-	first := !usersKnown
-	usersNow, usersLimit, usersKnown = n, lim, true
-	usersMu.Unlock()
-	if !changed {
-		return
-	}
-	if plainStats {
-		fmt.Printf("USERS %d/%d\n", n, lim) // машиночитаемо для Android-обёртки
-		return
-	}
-	switch {
-	case first:
-		logf("👥 пользователей на сервере: %d/%d", n, lim)
-	case n > prev:
-		logf("👥 подключился ещё один клиент — %d/%d", n, lim)
-	default:
-		logf("👥 клиент отключился — %d/%d", n, lim)
-	}
-}
-
-// usersSnapshot — текущее «занято/лимит» для строки статистики.
-func usersSnapshot() (n, limit int) {
-	usersMu.Lock()
-	defer usersMu.Unlock()
-	return usersNow, usersLimit
+	r.Header.Set(clientHeader, id)
+	return a.base.RoundTrip(r)
 }
 
 func runClient(listen, ip, host string, conns int, udp bool) {
@@ -2237,9 +1890,6 @@ func runClient(listen, ip, host string, conns int, udp bool) {
 		os.Exit(1)
 	}
 	fmt.Println("✓ Успешно подключено к серверу")
-	if clientName != "" {
-		fmt.Printf("Имя клиента: %s\n", clientName)
-	}
 	fmt.Println("STATUS linked") // машиночитаемо для Android-обёртки
 
 	// stream-транспорт требует CDN, не буферизующего тело запроса. Проверяем и,
@@ -2256,11 +1906,10 @@ func runClient(listen, ip, host string, conns int, udp bool) {
 		}
 	}
 
-	go tc.keepWarm()    // тёплый пул + периодический замер RTT
-	go tc.watchRoster() // список пользователей и счётчик онлайна в прямом эфире
+	go tc.keepWarm() // тёплый пул + периодический замер RTT
 
-	// По Ctrl-C / SIGTERM прощаемся с сервером, чтобы занятый слот (-users)
-	// освободился сразу, а не через seatTTL.
+	// По Ctrl-C / SIGTERM прощаемся с сервером, чтобы ссылка ушла с линии
+	// сразу, а не через linkTTL.
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 	go func() {
@@ -2323,6 +1972,32 @@ func (tc *tunnelClient) doReq(ctx context.Context, hc *http.Client, path string,
 	return hc.Do(req)
 }
 
+// deny — как показать отказ сервера: строкой STATUS для Android-обёртки и
+// человеку в терминал.
+type deny struct {
+	status string
+	text   string
+}
+
+// denyReason переводит ответ сервера в причину отказа. Сервер присылает её
+// текстом (см. denyReply), и это единственное место, где она разбирается.
+func denyReason(code int, body string) (deny, bool) {
+	switch {
+	case code == http.StatusConflict || strings.Contains(body, denyUsed):
+		return deny{"linkused", "ссылка уже используется на другом устройстве — попросите владельца отвязать её или выдать новую"}, true
+	case code != http.StatusForbidden:
+		return deny{}, false
+	case strings.Contains(body, denyUnknown):
+		return deny{"linkgone", "этой ссылки больше нет на сервере — владелец её удалил, попросите новую"}, true
+	case strings.Contains(body, denyRevoked):
+		return deny{"linkrevoked", "ссылка отозвана владельцем сервера — попросите новую"}, true
+	}
+	if linkCred != "" {
+		return deny{"linkbad", "сервер не принял ссылку — возможно, она выпущена для другого сервера"}, true
+	}
+	return deny{"authfail", "неверный мастер-ключ (сервер вернул 403)"}, true
+}
+
 func (tc *tunnelClient) hello() error {
 	token := randID()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -2334,26 +2009,9 @@ func (tc *tunnelClient) hello() error {
 	}
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	if resp.StatusCode == http.StatusForbidden {
-		if strings.Contains(string(body), "link revoked") {
-			fmt.Println("STATUS linkrevoked") // машиночитаемо для Android-обёртки
-			return fmt.Errorf("эта ссылка отозвана владельцем сервера — попросите новую")
-		}
-		if strings.Contains(string(body), "banned") {
-			fmt.Println("STATUS banned") // машиночитаемо для Android-обёртки
-			return fmt.Errorf("доступ закрыт: клиент «%s» заблокирован владельцем сервера", clientName)
-		}
-		fmt.Println("STATUS authfail")
-		return fmt.Errorf("неверный пароль (сервер вернул 403 forbidden)")
-	}
-	if resp.StatusCode == http.StatusConflict {
-		fmt.Println("STATUS linkused") // машиночитаемо для Android-обёртки
-		return fmt.Errorf("эта ссылка уже использована на другом устройстве — попросите новую")
-	}
-	if resp.StatusCode == http.StatusTooManyRequests {
-		fmt.Println("STATUS userlimit") // машиночитаемо для Android-обёртки
-		return fmt.Errorf("на сервере достигнуто максимальное число подключений (%s) — попробуйте позже",
-			strings.TrimSpace(string(body)))
+	if why, bad := denyReason(resp.StatusCode, string(body)); bad {
+		fmt.Println("STATUS " + why.status) // машиночитаемо для Android-обёртки
+		return errors.New(why.text)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("сервер вернул статус %d", resp.StatusCode)
@@ -2377,15 +2035,14 @@ func (tc *tunnelClient) keepWarm() {
 		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 		start := time.Now()
 		if resp, err := tc.doReq(ctx, tc.pool[0], "/hello", url.Values{}, qToken, []byte(token)); err == nil {
-			io.Copy(io.Discard, resp.Body)
+			b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 			resp.Body.Close()
-			if resp.StatusCode == http.StatusConflict {
-				logf("⚠ ссылка занята другим устройством")
-				fmt.Println("STATUS linkused")
-			} else if resp.StatusCode == http.StatusTooManyRequests {
-				// Слот отобрали (сервер перезапущен или лимит уменьшили).
-				logf("⚠ сервер отклонил запрос: достигнуто максимальное число подключений")
-				fmt.Println("STATUS userlimit")
+			tail := string(b)
+			// Владелец мог удалить или отозвать ссылку уже после подключения:
+			// замечаем это здесь и сообщаем обёртке, чтобы та погасила VPN.
+			if why, bad := denyReason(resp.StatusCode, tail); bad {
+				logf("⚠ %s", why.text)
+				fmt.Println("STATUS " + why.status)
 			} else {
 				st.rttMs.Store(time.Since(start).Milliseconds())
 			}
@@ -2403,88 +2060,7 @@ func (tc *tunnelClient) keepWarm() {
 	}
 }
 
-// watchRoster раз в несколько секунд забирает у сервера список пользователей
-// (кто онлайн, кто офлайн) и печатает его при каждом изменении: строкой
-// ROSTER {json} для Android-обёртки или человекочитаемо в терминал. Счётчик
-// «онлайн/лимит» приезжает заголовком на этом же запросе.
-func (tc *tunnelClient) watchRoster() {
-	tick := time.NewTicker(5 * time.Second)
-	defer tick.Stop()
-	last := ""
-	for range tick.C {
-		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-		resp, err := tc.doReq(ctx, tc.pool[0], usersPath, url.Values{}, "", nil)
-		if err != nil {
-			cancel()
-			continue
-		}
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-		resp.Body.Close()
-		cancel()
-		if resp.StatusCode == http.StatusNotFound {
-			logf("Сервер старой версии — список пользователей недоступен")
-			return
-		}
-		if resp.StatusCode != http.StatusOK {
-			continue
-		}
-		var d usersDoc
-		if json.Unmarshal(body, &d) != nil {
-			continue
-		}
-		sig := rosterSignature(d)
-		if sig == last {
-			continue // ничего не изменилось — не шумим
-		}
-		last = sig
-		if plainStats {
-			fmt.Printf("ROSTER %s\n", string(body)) // машиночитаемо для Android-обёртки
-			continue
-		}
-		logf("👥 %s", rosterSummary(d))
-	}
-}
-
-// rosterSignature — отпечаток состава списка (без меняющихся отметок времени),
-// чтобы печатать только настоящие изменения: кто-то подключился или отключился.
-func rosterSignature(d usersDoc) string {
-	parts := make([]string, 0, len(d.Users))
-	for _, u := range d.Users {
-		flag := "0"
-		if u.Online {
-			flag = "1"
-		}
-		parts = append(parts, u.Name+":"+flag)
-	}
-	sort.Strings(parts)
-	return fmt.Sprintf("%d/%d|%s", d.Online, d.Limit, strings.Join(parts, ","))
-}
-
-// rosterSummary — однострочная сводка списка для терминала.
-func rosterSummary(d usersDoc) string {
-	var on, off []string
-	for _, u := range d.Users {
-		if u.Online {
-			on = append(on, u.Name)
-		} else {
-			off = append(off, u.Name)
-		}
-	}
-	limit := "без лимита"
-	if d.Limit > 0 {
-		limit = fmt.Sprintf("лимит %d", d.Limit)
-	}
-	out := fmt.Sprintf("онлайн %d (%s)", d.Online, limit)
-	if len(on) > 0 {
-		out += ": " + strings.Join(on, ", ")
-	}
-	if len(off) > 0 {
-		out += " · офлайн: " + strings.Join(off, ", ")
-	}
-	return out
-}
-
-// bye сообщает серверу, что клиент уходит, — тот освобождает слот -users.
+// bye сообщает серверу, что клиент уходит, — ссылка сразу уходит с линии.
 func (tc *tunnelClient) bye() {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()

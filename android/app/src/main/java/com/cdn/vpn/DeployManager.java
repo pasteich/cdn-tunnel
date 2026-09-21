@@ -130,8 +130,7 @@ public class DeployManager {
             Exec un = exec(session, "cat > " + UNIT_PATH + " && echo OK", buildUnit().getBytes("UTF-8"));
             if (un.code != 0 || !un.out.contains("OK")) { fail(3, total, STEP_NAMES[3], trim(un)); return; }
             String rst = cfg.restartMin > 0 ? (", рестарт каждые " + cfg.restartMin + " мин") : "";
-            String lim = cfg.serverUsers > 0 ? (", лимит " + cfg.serverUsers + " польз.") : ", без лимита польз.";
-            cb.step(3, total, STEP_NAMES[3], "ok", UNIT_PATH + rst + lim);
+            cb.step(3, total, STEP_NAMES[3], "ok", UNIT_PATH + rst);
 
             cb.step(4, total, STEP_NAMES[4], "run", "daemon-reload + enable --now");
             Exec en = exec(session, "systemctl daemon-reload && systemctl enable --now " + SERVICE
@@ -146,8 +145,7 @@ public class DeployManager {
             boolean listening = logs.contains("слушает") || logs.contains("tunnel server") || logs.contains("Приём данных");
             if ("active".equals(active) && listening) {
                 cb.step(5, total, STEP_NAMES[5], "ok", "active · сервер слушает");
-                cb.done(true, "Сервер запущен и слушает. Пароль совпадает с клиентом."
-                        + (cfg.serverUsers > 0 ? "\nЛимит одновременных клиентов: " + cfg.serverUsers + "." : ""));
+                cb.done(true, "Сервер запущен и слушает. Выпускайте ссылки в «Управлении сервером».");
             } else if ("active".equals(active)) {
                 cb.step(5, total, STEP_NAMES[5], "ok", "active");
                 cb.done(true, "Сервис active. Лог:\n" + tail(logs));
@@ -171,10 +169,6 @@ public class DeployManager {
         String pw = cfg.serverPassword == null ? "" : cfg.serverPassword;
         if (pw != null && !pw.isEmpty()) {
             e.append(" -password \"").append(esc(pw)).append("\"");
-        }
-        // Лимит одновременных клиентов: 0 — без ограничения (флаг не добавляем).
-        if (cfg.serverUsers > 0) {
-            e.append(" -users ").append(cfg.serverUsers);
         }
 
         StringBuilder u = new StringBuilder();

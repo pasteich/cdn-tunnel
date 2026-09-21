@@ -36,32 +36,42 @@
         android:textSize="13sp" android:fontFamily="monospace"
         android:textColor="?attr/colorOnSurface" />
 
-    <LinearLayout
+    <HorizontalScrollView
         android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:orientation="horizontal" android:paddingTop="6dp">
+        android:paddingTop="6dp" android:scrollbars="none">
+    <LinearLayout
+        android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:orientation="horizontal">
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_link_share"
             style="@style/Widget.Material3.Button.TextButton"
             android:layout_width="wrap_content" android:layout_height="40dp"
-            android:minWidth="0dp" android:paddingStart="10dp" android:paddingEnd="10dp"
+            android:minWidth="0dp" android:paddingStart="8dp" android:paddingEnd="8dp"
             android:textSize="12sp" android:text="Поделиться" />
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_link_kick"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="wrap_content" android:layout_height="40dp"
+            android:minWidth="0dp" android:paddingStart="8dp" android:paddingEnd="8dp"
+            android:textSize="12sp" android:text="Сбросить" />
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_link_unbind"
             style="@style/Widget.Material3.Button.TextButton"
             android:layout_width="wrap_content" android:layout_height="40dp"
-            android:minWidth="0dp" android:paddingStart="10dp" android:paddingEnd="10dp"
+            android:minWidth="0dp" android:paddingStart="8dp" android:paddingEnd="8dp"
             android:textSize="12sp" android:text="Отвязать" />
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_link_revoke"
             style="@style/Widget.Material3.Button.TextButton"
             android:layout_width="wrap_content" android:layout_height="40dp"
-            android:minWidth="0dp" android:paddingStart="10dp" android:paddingEnd="10dp"
+            android:minWidth="0dp" android:paddingStart="8dp" android:paddingEnd="8dp"
             android:textSize="12sp" android:text="Отозвать" />
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_link_delete"
             style="@style/Widget.Material3.Button.TextButton"
             android:layout_width="wrap_content" android:layout_height="40dp"
-            android:minWidth="0dp" android:paddingStart="10dp" android:paddingEnd="10dp"
+            android:minWidth="0dp" android:paddingStart="8dp" android:paddingEnd="8dp"
             android:textSize="12sp" android:text="Удалить" android:textColor="@color/danger" />
     </LinearLayout>
+    </HorizontalScrollView>
 </LinearLayout>

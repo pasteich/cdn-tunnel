@@ -34,22 +34,21 @@ public class MainActivity extends AppCompatActivity implements TunState.Listener
     private static final int REQ_NOTIF = 1002;
 
     private TextInputEditText etIp, etHost, etPassword, etPort, etConns, etDns, etMtu;
-    private TextInputEditText etName, etLink;
+    private TextInputEditText etLink;
     private MaterialSwitch swUdp, swBlockAaaa, swDebug;
     private MaterialAutoCompleteTextView ddMethod, ddTransport;
     private MaterialSwitch swFastopen;
     private MaterialButton btnToggle, btnClear;
     private TextView tvStatus, tvStatusDetail, tvConn, tvLog, chevAdvanced, chevManual;
-    private TextView tvProfile, tvUsersCount, tvUsersHint;
-    private LinearLayout boxUsers;
+    private TextView tvProfile;
     private MaterialButton btnImport, btnPaste, btnWipe;
-    private TextView tvDownTotal, tvDownRate, tvUpTotal, tvUpRate, tvConns, tvUdp, tvRtt, tvUsers, tvUsersLive;
+    private TextView tvDownTotal, tvDownRate, tvUpTotal, tvUpRate, tvConns, tvUdp, tvRtt;
     private LinearProgressIndicator progress;
     private NestedScrollView logScroll;
     private View boxAdvanced, hdrAdvanced, boxManual, hdrManual;
-    private View tabTunnel, tabTraffic, tabServer, tabUsers;
+    private View tabTunnel, tabTraffic, tabServer;
     // server tab
-    private TextInputEditText etSshHost, etSshPort, etSshUser, etSshPass, etServerAddr, etServerPass, etRestartMin, etServerUsers;
+    private TextInputEditText etSshHost, etSshPort, etSshUser, etSshPass, etServerAddr, etServerPass, etRestartMin;
     private MaterialAutoCompleteTextView ddServerMethod;
     private MaterialButton btnDeploy, btnCheck, btnUninstall, btnAdmin, btnGenKey;
     private LinearProgressIndicator deployProgress;
@@ -64,7 +63,7 @@ public class MainActivity extends AppCompatActivity implements TunState.Listener
         etIp = f(R.id.et_ip); etHost = f(R.id.et_host); etPassword = f(R.id.et_password);
         etPort = f(R.id.et_port); etConns = f(R.id.et_conns);
         etDns = f(R.id.et_dns); etMtu = f(R.id.et_mtu);
-        etName = f(R.id.et_name); etLink = f(R.id.et_link);
+        etLink = f(R.id.et_link);
         swUdp = findViewById(R.id.sw_udp);
         swBlockAaaa = findViewById(R.id.sw_block_aaaa);
         swDebug = findViewById(R.id.sw_debug);
@@ -88,9 +87,6 @@ public class MainActivity extends AppCompatActivity implements TunState.Listener
         boxManual = findViewById(R.id.box_manual);
         hdrManual = findViewById(R.id.hdr_manual);
         tvProfile = findViewById(R.id.tv_profile);
-        tvUsersCount = findViewById(R.id.tv_users_count);
-        tvUsersHint = findViewById(R.id.tv_users_hint);
-        boxUsers = findViewById(R.id.box_users);
         btnImport = findViewById(R.id.btn_import);
         btnPaste = findViewById(R.id.btn_paste);
         btnWipe = findViewById(R.id.btn_wipe);
@@ -102,18 +98,14 @@ public class MainActivity extends AppCompatActivity implements TunState.Listener
         tvConns = findViewById(R.id.tv_conns);
         tvUdp = findViewById(R.id.tv_udp);
         tvRtt = findViewById(R.id.tv_rtt);
-        tvUsers = findViewById(R.id.tv_users);
-        tvUsersLive = findViewById(R.id.tv_users_live);
 
         tabTunnel = findViewById(R.id.tab_tunnel);
         tabTraffic = findViewById(R.id.tab_traffic);
         tabServer = findViewById(R.id.tab_server);
-        tabUsers = findViewById(R.id.tab_users);
 
         etSshHost = f(R.id.et_ssh_host); etSshPort = f(R.id.et_ssh_port);
         etSshUser = f(R.id.et_ssh_user); etSshPass = f(R.id.et_ssh_pass);
         etServerAddr = f(R.id.et_server_addr); etRestartMin = f(R.id.et_restart_min);
-        etServerUsers = f(R.id.et_server_users);
         etServerPass = f(R.id.et_server_pass);
         ddServerMethod = findViewById(R.id.dd_server_method);
         ddServerMethod.setSimpleItems(new String[]{"both", "post", "get"});
@@ -125,14 +117,9 @@ public class MainActivity extends AppCompatActivity implements TunState.Listener
         deployProgress = findViewById(R.id.deploy_progress);
         tvDeploy = findViewById(R.id.tv_deploy);
 
-        Config startCfg = Config.load(this);
-        if (startCfg.name == null || startCfg.name.trim().isEmpty()) {
-            startCfg.name = Build.MODEL == null ? "android" : Build.MODEL;
-        }
-        populate(startCfg);
+        populate(Config.load(this));
         renderLogs();
         renderStats(TunState.stats());
-        renderRoster(TunState.roster());
         handleShareIntent(getIntent()); // открытие по ссылке cdn://…
 
         BottomNavigationView bn = findViewById(R.id.bottom_nav);
@@ -141,15 +128,12 @@ public class MainActivity extends AppCompatActivity implements TunState.Listener
             tabTunnel.setVisibility(id == R.id.nav_tunnel ? View.VISIBLE : View.GONE);
             tabServer.setVisibility(id == R.id.nav_server ? View.VISIBLE : View.GONE);
             tabTraffic.setVisibility(id == R.id.nav_traffic ? View.VISIBLE : View.GONE);
-            tabUsers.setVisibility(id == R.id.nav_users ? View.VISIBLE : View.GONE);
             if (id == R.id.nav_traffic) renderLogs();
-            if (id == R.id.nav_users) renderRoster(TunState.roster());
             return true;
         });
 
         btnToggle.setOnClickListener(v -> {
-            boolean active = TunState.isRunning() || !TunState.DISCONNECTED.equals(TunState.phase());
-            if (active) stopVpn(); else startVpn();
+            if (busyOrUp()) stopVpn(); else startVpn();
         });
         btnClear.setOnClickListener(v -> { TunState.clear(); tvLog.setText(""); });
         btnDeploy.setOnClickListener(v -> startDeploy());
@@ -180,7 +164,6 @@ public class MainActivity extends AppCompatActivity implements TunState.Listener
         onPhase(TunState.phase(), TunState.phaseDetail());
         onRunningChanged(TunState.isRunning());
         renderStats(TunState.stats());
-        renderRoster(TunState.roster());
     }
 
     @Override protected void onPause() {
@@ -205,7 +188,6 @@ public class MainActivity extends AppCompatActivity implements TunState.Listener
         ddMethod.setText("get".equalsIgnoreCase(c.method) ? "get" : "post", false);
         ddTransport.setText("stream".equalsIgnoreCase(c.transport) ? "stream" : "chunked", false);
         swFastopen.setChecked(c.fastopen);
-        etName.setText(c.name);
         etSshHost.setText(c.sshHost);
         renderProfile(c);
         etSshPort.setText(String.valueOf(c.sshPort));
@@ -214,7 +196,6 @@ public class MainActivity extends AppCompatActivity implements TunState.Listener
         etServerAddr.setText(c.serverAddr);
         etServerPass.setText(c.serverPassword);
         etRestartMin.setText(String.valueOf(c.restartMin));
-        etServerUsers.setText(String.valueOf(c.serverUsers));
         ddServerMethod.setText(c.serverMethod == null ? "both" : c.serverMethod, false);
     }
 
@@ -239,14 +220,12 @@ public class MainActivity extends AppCompatActivity implements TunState.Listener
         c.method = ddMethod.getText() != null && ddMethod.getText().toString().trim().equalsIgnoreCase("get") ? "get" : "post";
         c.transport = ddTransport.getText() != null && ddTransport.getText().toString().trim().equalsIgnoreCase("stream") ? "stream" : "chunked";
         c.fastopen = swFastopen.isChecked();
-        c.name = etName.getText() == null ? "" : etName.getText().toString().trim();
         c.sshHost = etSshHost.getText() == null ? "" : etSshHost.getText().toString().trim();
         c.sshPort = intOf(etSshPort, c.sshPort);
         c.sshUser = txt(etSshUser, c.sshUser);
         c.sshPass = etSshPass.getText() == null ? "" : etSshPass.getText().toString();
         c.serverAddr = txt(etServerAddr, c.serverAddr);
         c.restartMin = intOf(etRestartMin, 0);
-        c.serverUsers = intOf(etServerUsers, 0);
         c.serverMethod = ddServerMethod.getText() == null ? "both" : ddServerMethod.getText().toString().trim();
         c.serverPassword = etServerPass.getText() == null ? "" : etServerPass.getText().toString();
         return c;
@@ -450,11 +429,10 @@ public class MainActivity extends AppCompatActivity implements TunState.Listener
     private void wipeAll() {
         new AlertDialog.Builder(this)
                 .setTitle("Стереть все настройки?")
-                .setMessage("Адрес сервера, пароль, ссылка, имя и данные VPS будут удалены с телефона.")
+                .setMessage("Ссылка, адрес сервера, мастер-ключ и данные VPS будут удалены с телефона.")
                 .setPositiveButton("Стереть", (d, w) -> {
                     Config.wipe(this);
                     Config fresh = new Config();
-                    fresh.name = Build.MODEL == null ? "android" : Build.MODEL;
                     populate(fresh);
                     fresh.save(this);
                     TunState.log("[ui] настройки стёрты");
@@ -472,73 +450,6 @@ public class MainActivity extends AppCompatActivity implements TunState.Listener
         }
         String label = (c.shareLabel == null || c.shareLabel.isEmpty()) ? "" : c.shareLabel + " · ";
         tvProfile.setText("Сервер: " + label + c.host + " (" + c.ip + ")");
-    }
-
-    // ---------- вкладка «Юзеры» ----------
-
-    /** Список пользователей сервера: онлайн сверху, офлайн — с отметкой «был …». */
-    private void renderRoster(TunState.Roster r) {
-        if (boxUsers == null) return;
-        boxUsers.removeAllViews();
-        if (r == null || r.users.isEmpty()) {
-            tvUsersCount.setText("—");
-            tvUsersHint.setText(TunState.isRunning()
-                    ? "Сервер пока не прислал список. Он появится через несколько секунд."
-                    : "Список приходит с сервера, пока VPN запущен. Запустите туннель на вкладке «Туннель».");
-            return;
-        }
-        tvUsersCount.setText(r.limit > 0 ? r.online + "/" + r.limit + " онлайн" : r.online + " онлайн");
-        tvUsersHint.setText("Каждый клиент виден под своим именем (поле «Твоё имя», у бинарника — флаг -name).");
-        for (TunState.User u : r.users) {
-            boxUsers.addView(userRow(u));
-        }
-    }
-
-    private View userRow(TunState.User u) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setBackgroundResource(R.drawable.card_bg);
-        int pad = dp(14);
-        row.setPadding(pad, dp(12), pad, dp(12));
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        lp.bottomMargin = dp(8);
-        row.setLayoutParams(lp);
-
-        TextView dot = new TextView(this);
-        dot.setText("●");
-        dot.setTextSize(16);
-        dot.setTextColor(u.online ? 0xFF9FB86A : 0xFF6B5B49);
-        dot.setPadding(0, 0, dp(12), 0);
-
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-
-        TextView name = new TextView(this);
-        name.setText(u.name);
-        name.setTextSize(16);
-        name.setTextColor(0xFFEBDCC9);
-
-        TextView sub = new TextView(this);
-        sub.setTextSize(12);
-        sub.setTextColor(0xFFB9A588);
-        sub.setText(u.online
-                ? "онлайн" + (u.since > 0 ? " · на связи " + ago(u.since) : "")
-                : "офлайн" + (u.last > 0 ? " · был " + agoPhrase(u.last) : ""));
-
-        box.addView(name);
-        box.addView(sub);
-        row.addView(dot);
-        row.addView(box);
-
-        TextView state = new TextView(this);
-        state.setText(u.online ? "онлайн" : "офлайн");
-        state.setTextSize(13);
-        state.setTextColor(u.online ? 0xFF9FB86A : 0xFF8A7A66);
-        row.addView(state);
-        return row;
     }
 
     private static String agoPhrase(long tSec) {
@@ -561,9 +472,20 @@ public class MainActivity extends AppCompatActivity implements TunState.Listener
 
     // ---------- TunState.Listener ----------
 
+    /**
+     * Туннель поднят или как раз поднимается? Фазы отказа (сервер не принял ключ
+     * или ссылку) сюда не входят: там останавливать уже нечего, и кнопка должна
+     * снова предлагать запуск, а не заставлять жать «Остановить» впустую.
+     */
+    private boolean busyOrUp() {
+        if (TunState.isRunning()) return true;
+        String p = TunState.phase();
+        return TunState.STARTING.equals(p) || TunState.CONNECTING.equals(p)
+                || TunState.CONNECTED.equals(p);
+    }
+
     @Override public void onRunningChanged(boolean running) {
-        btnToggle.setText(running || !TunState.DISCONNECTED.equals(TunState.phase())
-                ? "Остановить VPN" : "Запустить VPN");
+        btnToggle.setText(busyOrUp() ? "Остановить VPN" : "Запустить VPN");
     }
 
     @Override public void onLog(String line) {
@@ -580,18 +502,18 @@ public class MainActivity extends AppCompatActivity implements TunState.Listener
             case TunState.CONNECTING:   label = "Подключение…";     color = 0xFFC7A34E; break;
             case TunState.STARTING:     label = "Запуск…";          color = 0xFFC7A34E; break;
             case TunState.NO_ROUTE:     label = "Нет маршрута";     color = 0xFFD0674A; break;
-            case TunState.AUTH_FAIL:    label = "Неверный пароль";  color = 0xFFD0674A; break;
+            case TunState.AUTH_FAIL:    label = "Неверный ключ";    color = 0xFFD0674A; break;
             case TunState.ERROR:        label = "Ошибка";           color = 0xFFD0674A; break;
-            case TunState.USER_LIMIT:   label = "Мест нет";         color = 0xFFD0674A; break;
             case TunState.LINK_USED:    label = "Ссылка занята";    color = 0xFFD0674A; break;
             case TunState.LINK_REVOKED: label = "Ссылка отозвана";  color = 0xFFD0674A; break;
-            case TunState.BANNED:       label = "Заблокирован";     color = 0xFFD0674A; break;
+            case TunState.LINK_GONE:    label = "Ссылки больше нет"; color = 0xFFD0674A; break;
+            case TunState.LINK_BAD:     label = "Ссылка не принята"; color = 0xFFD0674A; break;
             default:                    label = "Отключено";        color = 0xFFB9A588; break;
         }
         tvStatus.setText(label);
         tvStatus.setTextColor(color);
         tvStatusDetail.setText(detail == null || detail.isEmpty()
-                ? "Заполните поля и нажмите «Запустить VPN»" : detail);
+                ? "Вставьте ссылку cdn:// и нажмите «Запустить VPN»" : detail);
         tvConn.setText("● " + label.toLowerCase());
         tvConn.setTextColor(color);
 
@@ -604,10 +526,6 @@ public class MainActivity extends AppCompatActivity implements TunState.Listener
         renderStats(s);
     }
 
-    @Override public void onRoster(TunState.Roster r) {
-        renderRoster(r);
-    }
-
     private void renderStats(TunState.Stats s) {
         if (s == null) return;
         tvDownTotal.setText(human(s.down));
@@ -617,22 +535,6 @@ public class MainActivity extends AppCompatActivity implements TunState.Listener
         tvConns.setText(String.valueOf(s.conns) + "  (Σ" + s.total + ")");
         tvUdp.setText(human(s.udpDown) + " / " + human(s.udpUp));
         tvRtt.setText(s.rtt > 0 ? s.rtt + " ms" : "— ms");
-        renderUsers(s);
-    }
-
-    /**
-     * Живой счётчик пользователей сервера: «2/5» на вкладке «Трафик» и строка
-     * «👥 Подключено 2/5» в карточке статуса. Сервер без -users счётчика не
-     * присылает — тогда показываем прочерк и строку прячем.
-     */
-    private void renderUsers(TunState.Stats s) {
-        boolean known = s.maxUsers > 0;
-        tvUsers.setText(known ? s.users + "/" + s.maxUsers : "—");
-        tvUsersLive.setVisibility(known ? View.VISIBLE : View.GONE);
-        if (known) {
-            tvUsersLive.setText("👥 Подключено " + s.users + "/" + s.maxUsers
-                    + (s.users >= s.maxUsers ? "  · мест нет" : ""));
-        }
     }
 
     private void renderLogs() {

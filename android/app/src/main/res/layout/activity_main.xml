@@ -59,19 +59,10 @@
                     <TextView
                         android:id="@+id/tv_status_detail"
                         android:layout_width="match_parent" android:layout_height="wrap_content"
-                        android:text="Заполните поля и нажмите «Запустить VPN»"
+                        android:text="Вставьте ссылку cdn:// и нажмите «Запустить VPN»"
                         android:textSize="13sp"
                         android:paddingTop="2dp"
                         android:textColor="?attr/colorOnSurfaceVariant" />
-                    <TextView
-                        android:id="@+id/tv_users_live"
-                        android:layout_width="match_parent" android:layout_height="wrap_content"
-                        android:text="👥 Подключено —"
-                        android:textSize="13sp"
-                        android:fontFamily="monospace"
-                        android:paddingTop="6dp"
-                        android:visibility="gone"
-                        android:textColor="?attr/colorPrimary" />
                     <com.google.android.material.progressindicator.LinearProgressIndicator
                         android:id="@+id/progress"
                         android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -81,16 +72,7 @@
                         app:trackCornerRadius="3dp" />
                 </LinearLayout>
 
-                <TextView style="@style/Section" android:text="Профиль" />
-
-                <com.google.android.material.textfield.TextInputLayout
-                    style="@style/Field" android:hint="Твоё имя (видно друзьям в списке)">
-                    <com.google.android.material.textfield.TextInputEditText
-                        android:id="@+id/et_name"
-                        android:layout_width="match_parent" android:layout_height="wrap_content"
-                        android:inputType="text" android:fontFamily="monospace"
-                        android:maxLines="1" />
-                </com.google.android.material.textfield.TextInputLayout>
+                <TextView style="@style/Section" android:text="Ссылка" />
 
                 <com.google.android.material.textfield.TextInputLayout
                     style="@style/Field" android:hint="cdn://…">
@@ -458,19 +440,6 @@
                             android:text="0 B / 0 B" android:textSize="18sp" android:textStyle="bold"
                             android:fontFamily="monospace" android:textColor="?attr/colorOnSurface" />
                     </LinearLayout>
-                    <LinearLayout
-                        android:layout_width="0dp" android:layout_height="wrap_content"
-                        android:layout_weight="1" android:orientation="vertical"
-                        android:background="@drawable/card_bg" android:padding="14dp"
-                        android:layout_marginStart="7dp">
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="Пользователи" android:textSize="12sp"
-                            android:textColor="?attr/colorOnSurfaceVariant" />
-                        <TextView android:id="@+id/tv_users"
-                            android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="—" android:textSize="18sp" android:textStyle="bold"
-                            android:fontFamily="monospace" android:textColor="?attr/colorOnSurface" />
-                    </LinearLayout>
                 </LinearLayout>
 
                 <LinearLayout
@@ -496,51 +465,6 @@
                     android:fontFamily="monospace" android:textSize="11sp"
                     android:textColor="?attr/colorOnSurfaceVariant"
                     android:textIsSelectable="true" />
-
-            </LinearLayout>
-        </androidx.core.widget.NestedScrollView>
-
-        <!-- ===================== USERS TAB ===================== -->
-        <androidx.core.widget.NestedScrollView
-            android:id="@+id/tab_users"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:fillViewport="true"
-            android:visibility="gone">
-
-            <LinearLayout
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:orientation="vertical" android:padding="16dp">
-
-                <LinearLayout
-                    android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:orientation="horizontal" android:gravity="center_vertical"
-                    android:paddingBottom="14dp">
-                    <TextView
-                        android:layout_width="0dp" android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="Пользователи"
-                        android:fontFamily="monospace" android:textSize="18sp" android:textStyle="bold"
-                        android:textColor="?attr/colorPrimary" />
-                    <TextView
-                        android:id="@+id/tv_users_count"
-                        android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="—"
-                        android:fontFamily="monospace" android:textSize="15sp" android:textStyle="bold"
-                        android:textColor="?attr/colorOnSurface" />
-                </LinearLayout>
-
-                <LinearLayout
-                    android:id="@+id/box_users"
-                    android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:orientation="vertical" />
-
-                <TextView
-                    android:id="@+id/tv_users_hint"
-                    android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:text="Список приходит с сервера, пока VPN запущен. Каждый клиент виден под своим именем (поле «Твоё имя» на вкладке «Туннель», флаг -name у бинарника)."
-                    android:textSize="12sp" android:textColor="?attr/colorOnSurfaceVariant" />
 
             </LinearLayout>
         </androidx.core.widget.NestedScrollView>
@@ -646,24 +570,16 @@
 
                 <LinearLayout style="@style/Row">
                     <com.google.android.material.textfield.TextInputLayout
-                        style="@style/Field.Half" android:hint="Рестарт, мин (0 = нет)"
-                        android:layout_marginEnd="10dp">
+                        style="@style/Field" android:hint="Рестарт сервиса, мин (0 = нет)">
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/et_restart_min"
-                            android:layout_width="match_parent" android:layout_height="wrap_content"
-                            android:inputType="number" android:fontFamily="monospace" android:maxLines="1" />
-                    </com.google.android.material.textfield.TextInputLayout>
-                    <com.google.android.material.textfield.TextInputLayout
-                        style="@style/Field.Half" android:hint="Макс. юзеров (-users)">
-                        <com.google.android.material.textfield.TextInputEditText
-                            android:id="@+id/et_server_users"
                             android:layout_width="match_parent" android:layout_height="wrap_content"
                             android:inputType="number" android:fontFamily="monospace" android:maxLines="1" />
                     </com.google.android.material.textfield.TextInputLayout>
                 </LinearLayout>
                 <TextView
                     android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:text="Сколько клиентов сервер обслуживает одновременно. 0 — без лимита; лишним отвечает 429, в журнале сервера — «достигнуто максимальное число подключений»."
+                    android:text="Доступ к серверу дают только ссылки, выпущенные в «Управлении сервером». Сколько их выпущено — столько людей и может подключиться."
                     android:textSize="11sp" android:textColor="?attr/colorOnSurfaceVariant"
                     android:paddingBottom="10dp" />
 

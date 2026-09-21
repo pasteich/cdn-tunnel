@@ -7,7 +7,6 @@ import android.content.Intent;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.text.InputType;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.EditText;
@@ -28,19 +27,19 @@ import org.json.JSONObject;
  * подключения по SSH и читает ручку /admin запущенного сервера (SSH → curl на
  * localhost, см. DeployManager.admin).
  *
- * Показывает всё, что знает сервер: аптайм и трафик сервера, каждую выпущенную
- * ссылку (использована или нет, к какому устройству привязана, сколько через неё
- * прошло) и каждого клиента с его трафиком. Отсюда же ссылки выпускаются,
- * отвязываются, отзываются и удаляются, а клиенты — отключаются и блокируются.
+ * Единственная сущность здесь — ссылка cdn://. Панель показывает каждую
+ * выпущенную ссылку: использована она или нет, к какому устройству привязана,
+ * на линии ли сейчас и сколько через неё прошло трафика. Отсюда ссылки
+ * выпускаются, отвязываются, отзываются, удаляются и сбрасываются с линии.
  */
 public class AdminActivity extends AppCompatActivity {
 
     private Config cfg;
     private DeployManager dm;
 
-    private TextView tvHost, tvOnline, tvSub, tvDown, tvUp, tvLinksCount, tvUsersCount, tvOutdated;
+    private TextView tvHost, tvOnline, tvSub, tvDown, tvUp, tvLinksCount, tvOutdated;
     private View boxOutdated;
-    private LinearLayout boxLinks, boxUsers;
+    private LinearLayout boxLinks;
     private LinearProgressIndicator progress;
 
     private final Handler ui = new Handler(Looper.getMainLooper());
@@ -68,9 +67,7 @@ public class AdminActivity extends AppCompatActivity {
         tvDown = findViewById(R.id.tv_adm_down);
         tvUp = findViewById(R.id.tv_adm_up);
         tvLinksCount = findViewById(R.id.tv_adm_links_count);
-        tvUsersCount = findViewById(R.id.tv_adm_users_count);
         boxLinks = findViewById(R.id.box_links);
-        boxUsers = findViewById(R.id.box_admin_users);
         progress = findViewById(R.id.adm_progress);
         boxOutdated = findViewById(R.id.box_outdated);
         tvOutdated = findViewById(R.id.tv_outdated);
@@ -80,7 +77,6 @@ public class AdminActivity extends AppCompatActivity {
 
         ((MaterialButton) findViewById(R.id.btn_new_link)).setOnClickListener(v -> newLink());
         ((MaterialButton) findViewById(R.id.btn_adm_refresh)).setOnClickListener(v -> refresh(true));
-        ((MaterialButton) findViewById(R.id.btn_adm_limit)).setOnClickListener(v -> askLimit());
         ((MaterialButton) findViewById(R.id.btn_adm_restart)).setOnClickListener(v -> restart());
     }
 
@@ -112,7 +108,7 @@ public class AdminActivity extends AppCompatActivity {
     }
 
     /** Версия серверной части, которую ждёт это приложение (см. serverVersion в main.go). */
-    private static final String NEEDED_VERSION = "1.4";
+    private static final String NEEDED_VERSION = "2.0";
 
     private void render(JSONObject d) {
         String version = d.optString("version", "?");
@@ -122,49 +118,35 @@ public class AdminActivity extends AppCompatActivity {
             tvOutdated.setText("На сервере сборка " + version + ", приложению нужна " + NEEDED_VERSION
                     + ". Часть кнопок (в том числе выпуск ссылок) вернёт «unknown action», пока сервер не обновлён.");
         }
-        int limit = d.optInt("limit", 0);
         int online = d.optInt("online", 0);
-        tvOnline.setText(limit > 0 ? online + "/" + limit + " онлайн" : online + " онлайн");
-        tvSub.setText("версия " + d.optString("version", "?")
+        tvOnline.setText(online + " на линии");
+        tvSub.setText("версия " + version
                 + " · аптайм " + dur(d.optLong("uptime", 0))
                 + " · стримов " + d.optInt("streams", 0) + " · udp " + d.optInt("udp", 0)
-                + "\nлимит " + (limit > 0 ? String.valueOf(limit) : "не задан")
-                + " · метод " + d.optString("method", "?")
-                + " · пароль " + (d.optBoolean("password", false) ? "есть" : "нет"));
+                + "\nметод " + d.optString("method", "?")
+                + " · мастер-ключ " + (d.optBoolean("password", false) ? "задан" : "не задан"));
         tvDown.setText(human(d.optLong("down", 0)));
         tvUp.setText(human(d.optLong("up", 0)));
 
         JSONArray links = d.optJSONArray("links");
         boxLinks.removeAllViews();
         int alive = 0, bound = 0;
+        long totalUp = 0, totalDown = 0;
         if (links == null || links.length() == 0) {
             boxLinks.addView(empty("Ссылок пока нет. «Новая ссылка» — и отправьте её другу."));
+            tvLinksCount.setText("");
         } else {
             for (int i = 0; i < links.length(); i++) {
                 JSONObject l = links.optJSONObject(i);
                 if (l == null) continue;
                 if (!l.optBoolean("revoked", false)) alive++;
                 if (!l.optString("device", "").isEmpty()) bound++;
+                totalUp += l.optLong("up", 0);
+                totalDown += l.optLong("down", 0);
                 boxLinks.addView(linkCard(l));
             }
-        }
-        tvLinksCount.setText(alive + " активн. · " + bound + " привязано");
-
-        JSONArray users = d.optJSONArray("users");
-        boxUsers.removeAllViews();
-        if (users == null || users.length() == 0) {
-            boxUsers.addView(empty("Клиентов ещё не было."));
-            tvUsersCount.setText("");
-        } else {
-            long totalUp = 0, totalDown = 0;
-            for (int i = 0; i < users.length(); i++) {
-                JSONObject u = users.optJSONObject(i);
-                if (u == null) continue;
-                totalUp += u.optLong("up", 0);
-                totalDown += u.optLong("down", 0);
-                boxUsers.addView(userCard(u));
-            }
-            tvUsersCount.setText("всего ↓ " + human(totalDown) + " ↑ " + human(totalUp));
+            tvLinksCount.setText(alive + " активн · " + bound + " привяз · ↓ "
+                    + human(totalDown) + " ↑ " + human(totalUp));
         }
     }
 
@@ -174,91 +156,66 @@ public class AdminActivity extends AppCompatActivity {
         final String label = l.optString("label", "");
         final String device = l.optString("device", "");
         final boolean revoked = l.optBoolean("revoked", false);
-        final String name = l.optString("name", "");
+        final boolean online = l.optBoolean("online", false);
 
         TextView title = v.findViewById(R.id.tv_link_title);
         TextView state = v.findViewById(R.id.tv_link_state);
         title.setText(label.isEmpty() ? "Без подписи" : label);
         if (revoked) {
             state.setText("отозвана"); state.setTextColor(0xFFD0674A);
+        } else if (online) {
+            state.setText("на линии"); state.setTextColor(0xFF9FB86A);
         } else if (device.isEmpty()) {
             state.setText("не использована"); state.setTextColor(0xFFC7A34E);
         } else {
-            state.setText("привязана"); state.setTextColor(0xFF9FB86A);
+            state.setText("привязана"); state.setTextColor(0xFF8A7A66);
         }
 
-        String meta = "id " + id + " · создана " + agoPhrase(l.optLong("created", 0));
+        // Подпись меняется по нажатию на неё: у ссылок, перенесённых со старого
+        // сервера, она бессмысленная («вне админки»).
+        title.setOnClickListener(x -> renameLink(id, label));
+
+        String meta = "id " + id + " · выпущена " + agoPhrase(l.optLong("created", 0));
         if (!device.isEmpty()) {
-            meta += "\nустройство " + device + (name.isEmpty() ? "" : " · клиент «" + name + "»")
-                    + "\nпоследний раз " + agoPhrase(l.optLong("last_use", 0));
+            meta += "\nустройство " + device;
+            String ip = l.optString("ip", "");
+            if (online) {
+                long since = l.optLong("since", 0);
+                meta += "\nна линии" + (ip.isEmpty() ? "" : " с " + ip)
+                        + (since > 0 ? " · " + dur(Math.max(0, System.currentTimeMillis() / 1000 - since)) : "");
+            } else {
+                meta += "\nпоследний раз " + agoPhrase(l.optLong("last_use", 0));
+            }
         }
         ((TextView) v.findViewById(R.id.tv_link_meta)).setText(meta);
         ((TextView) v.findViewById(R.id.tv_link_traffic)).setText(
                 "↓ " + human(l.optLong("down", 0)) + "   ↑ " + human(l.optLong("up", 0)));
 
         MaterialButton share = v.findViewById(R.id.btn_link_share);
+        MaterialButton kick = v.findViewById(R.id.btn_link_kick);
         MaterialButton unbind = v.findViewById(R.id.btn_link_unbind);
         MaterialButton revoke = v.findViewById(R.id.btn_link_revoke);
         MaterialButton del = v.findViewById(R.id.btn_link_delete);
 
-        // Ссылку можно собрать заново из её id: удостоверение — подпись мастер-паролем.
+        // Ссылку можно собрать заново из её id: удостоверение — подпись мастер-ключом.
         share.setOnClickListener(x -> shareExisting(id, label));
         share.setEnabled(!revoked);
+        kick.setEnabled(online);
+        kick.setOnClickListener(x -> act("/admin/link/kick?id=" + id, "Сброшена с линии"));
         unbind.setEnabled(!device.isEmpty());
-        unbind.setOnClickListener(x -> act("/admin/link/unbind?id=" + id, "Ссылка отвязана"));
+        unbind.setOnClickListener(x -> confirm("Отвязать от устройства?",
+                "Ссылка останется рабочей, но откроется на любом другом телефоне.",
+                () -> act("/admin/link/unbind?id=" + id, "Ссылка отвязана")));
         revoke.setText(revoked ? "Вернуть" : "Отозвать");
         revoke.setOnClickListener(x -> {
             if (revoked) act("/admin/link/restore?id=" + id, "Ссылка снова активна");
-            else confirm("Отозвать ссылку?", "Клиент по ней больше не подключится. Счётчики останутся.",
+            else confirm("Отозвать ссылку?",
+                    "Подключиться по ней будет нельзя, но запись и счётчики останутся — можно вернуть.",
                     () -> act("/admin/link/revoke?id=" + id, "Ссылка отозвана"));
         });
         del.setOnClickListener(x -> confirm("Удалить ссылку?",
-                "Пропадёт из списка вместе со счётчиками трафика.",
+                "Доступ по ней закроется навсегда: заново по этой ссылке зайти уже не получится.",
                 () -> act("/admin/link/delete?id=" + id, "Ссылка удалена")));
-        return v;
-    }
-
-    private View userCard(JSONObject u) {
-        View v = LayoutInflater.from(this).inflate(R.layout.item_user, boxUsers, false);
-        final String name = u.optString("name", "?");
-        final boolean online = u.optBoolean("online", false);
-        final boolean banned = u.optBoolean("banned", false);
-
-        TextView dot = v.findViewById(R.id.tv_user_dot);
-        dot.setTextColor(banned ? 0xFFD0674A : online ? 0xFF9FB86A : 0xFF6B5B49);
-        ((TextView) v.findViewById(R.id.tv_user_name)).setText(name);
-        TextView state = v.findViewById(R.id.tv_user_state);
-        state.setText(banned ? "бан" : online ? "онлайн" : "офлайн");
-        state.setTextColor(banned ? 0xFFD0674A : online ? 0xFF9FB86A : 0xFF8A7A66);
-
-        ((TextView) v.findViewById(R.id.tv_user_traffic)).setText(
-                "↓ " + human(u.optLong("down", 0)) + "   ↑ " + human(u.optLong("up", 0)));
-
-        StringBuilder meta = new StringBuilder("подключений: ").append(u.optLong("seen", 0));
-        String ip = u.optString("ip", "");
-        if (online) {
-            if (!ip.isEmpty()) meta.append(" · ").append(ip);
-            long since = u.optLong("since", 0);
-            if (since > 0) meta.append(" · на связи ").append(dur(Math.max(0,
-                    System.currentTimeMillis() / 1000 - since)));
-        } else {
-            meta.append(" · был ").append(agoPhrase(u.optLong("last", 0)));
-        }
-        String link = u.optString("link", "");
-        if (!link.isEmpty()) meta.append("\nссылка ").append(link);
-        ((TextView) v.findViewById(R.id.tv_user_meta)).setText(meta.toString());
-
-        MaterialButton kick = v.findViewById(R.id.btn_user_kick);
-        MaterialButton ban = v.findViewById(R.id.btn_user_ban);
-        MaterialButton forget = v.findViewById(R.id.btn_user_forget);
-        kick.setEnabled(online);
-        kick.setOnClickListener(x -> act("/admin/kick?name=" + enc(name), "«" + name + "» отключён"));
-        ban.setText(banned ? "Разбан" : "Бан");
-        ban.setOnClickListener(x -> act("/admin/" + (banned ? "unban" : "ban") + "?name=" + enc(name),
-                banned ? "Разблокирован" : "Заблокирован"));
-        forget.setOnClickListener(x -> confirm("Забыть «" + name + "»?",
-                "Клиент пропадёт из списка вместе со своими счётчиками.",
-                () -> act("/admin/forget?name=" + enc(name), "Забыт")));
         return v;
     }
 
@@ -324,7 +281,23 @@ public class AdminActivity extends AppCompatActivity {
                 .show();
     }
 
-    /** Пересобирает ссылку по её id (удостоверение = подпись мастер-паролем). */
+    /** Меняет подпись ссылки: по ней владелец и различает, кому что выдал. */
+    private void renameLink(final String id, String label) {
+        final EditText in = field("Кому эта ссылка", label);
+        LinearLayout box = new LinearLayout(this);
+        box.setPadding(dp(20), dp(8), dp(20), 0);
+        box.addView(in);
+        new AlertDialog.Builder(this)
+                .setTitle("Подпись ссылки")
+                .setView(box)
+                .setPositiveButton("Сохранить", (d, w) ->
+                        act("/admin/link/rename?id=" + id + "&label=" + enc(in.getText().toString().trim()),
+                                "Подпись изменена"))
+                .setNegativeButton("Отмена", null)
+                .show();
+    }
+
+    /** Пересобирает ссылку по её id (удостоверение = подпись мастер-ключом). */
     private void shareExisting(String id, String label) {
         String master = master();
         if (master.isEmpty()) { toast("Не задан мастер-ключ сервера (вкладка «Сервер»)"); return; }
@@ -353,30 +326,6 @@ public class AdminActivity extends AppCompatActivity {
                     toast("Скопировано");
                 })
                 .setNegativeButton("Закрыть", null)
-                .show();
-    }
-
-    private void askLimit() {
-        final EditText in = new EditText(this);
-        in.setInputType(InputType.TYPE_CLASS_NUMBER);
-        in.setHint("0 — без лимита");
-        LinearLayout box = new LinearLayout(this);
-        box.setPadding(dp(20), dp(8), dp(20), 0);
-        box.addView(in);
-        new AlertDialog.Builder(this)
-                .setTitle("Лимит одновременных клиентов")
-                .setMessage("Применяется сразу, без перезапуска сервера.")
-                .setView(box)
-                .setPositiveButton("Применить", (d, w) -> {
-                    String v = in.getText().toString().trim();
-                    if (v.isEmpty()) return;
-                    act("/admin/limit?n=" + v, "Лимит: " + v);
-                    try {
-                        cfg.serverUsers = Integer.parseInt(v);
-                        cfg.save(this); // чтобы следующий деплой не вернул старое значение
-                    } catch (NumberFormatException ignored) {}
-                })
-                .setNegativeButton("Отмена", null)
                 .show();
     }
 

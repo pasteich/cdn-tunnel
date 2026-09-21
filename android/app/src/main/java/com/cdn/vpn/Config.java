@@ -17,7 +17,6 @@ public class Config {
     public String method = "post";           // -method : post | get
     public String transport = "chunked";     // -transport : chunked | stream
     public boolean fastopen = true;          // -fastopen
-    public String name = "";                 // -name : имя клиента в списке пользователей
     public String shareLabel = "";           // подпись профиля для cdn://-ссылки
 
     // --- VPN / tun2socks wrapper ---
@@ -36,9 +35,8 @@ public class Config {
     public String serverMethod = "both";    // -method на сервере (post|get|both)
     public String serverPassword = "";      // -password на сервере (если пусто — берётся пароль клиента)
     public int restartMin = 0;              // рестарт сервиса каждые N минут (0 = не рестартить)
-    public String linkHost = "";            // Host/SNI, введённый в админке при выпуске ссылки
+    public String linkHost = "";            // Host/SNI, введённый в панели при выпуске ссылки
     public String linkIp = "";              // IP CDN, введённый там же
-    public int serverUsers = 0;             // -users на сервере: максимум клиентов (0 = без лимита)
 
     private static final String PREFS = "cdntunnel";
 
@@ -55,7 +53,6 @@ public class Config {
         c.method = p.getString("method", c.method);
         c.transport = p.getString("transport", c.transport);
         c.fastopen = p.getBoolean("fastopen", c.fastopen);
-        c.name = p.getString("name", c.name);
         c.shareLabel = p.getString("shareLabel", c.shareLabel);
         c.dns = p.getString("dns", c.dns);
         c.mtu = p.getInt("mtu", c.mtu);
@@ -70,7 +67,6 @@ public class Config {
         c.serverMethod = p.getString("serverMethod", c.serverMethod);
         c.serverPassword = p.getString("serverPassword", c.serverPassword);
         c.restartMin = p.getInt("restartMin", c.restartMin);
-        c.serverUsers = p.getInt("serverUsers", c.serverUsers);
         c.linkHost = p.getString("linkHost", c.linkHost);
         c.linkIp = p.getString("linkIp", c.linkIp);
         return c;
@@ -88,7 +84,6 @@ public class Config {
         e.putString("method", method);
         e.putString("transport", transport);
         e.putBoolean("fastopen", fastopen);
-        e.putString("name", name);
         e.putString("shareLabel", shareLabel);
         e.putString("dns", dns);
         e.putInt("mtu", mtu);
@@ -103,7 +98,6 @@ public class Config {
         e.putString("serverMethod", serverMethod);
         e.putString("serverPassword", serverPassword);
         e.putInt("restartMin", restartMin);
-        e.putInt("serverUsers", serverUsers);
         e.putString("linkHost", linkHost);
         e.putString("linkIp", linkIp);
         e.apply();
@@ -125,7 +119,6 @@ public class Config {
         i.putExtra("method", method);
         i.putExtra("transport", transport);
         i.putExtra("fastopen", fastopen);
-        i.putExtra("name", name);
         i.putExtra("dns", dns);
         i.putExtra("mtu", mtu);
         i.putExtra("blockAAAA", blockAAAA);
@@ -144,7 +137,6 @@ public class Config {
         if (i.hasExtra("method")) c.method = i.getStringExtra("method");
         if (i.hasExtra("transport")) c.transport = i.getStringExtra("transport");
         c.fastopen = i.getBooleanExtra("fastopen", c.fastopen);
-        if (i.hasExtra("name")) c.name = i.getStringExtra("name");
         if (i.hasExtra("dns")) c.dns = i.getStringExtra("dns");
         c.mtu = i.getIntExtra("mtu", c.mtu);
         c.blockAAAA = i.getBooleanExtra("blockAAAA", c.blockAAAA);

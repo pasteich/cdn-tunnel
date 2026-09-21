@@ -113,12 +113,6 @@
             android:layout_width="match_parent" android:layout_height="wrap_content"
             android:orientation="horizontal" android:layout_marginTop="8dp">
             <com.google.android.material.button.MaterialButton
-                android:id="@+id/btn_adm_limit"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="0dp" android:layout_weight="1" android:layout_height="46dp"
-                android:layout_marginEnd="8dp"
-                android:text="Лимит" app:cornerRadius="14dp" />
-            <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_adm_restart"
                 style="@style/Widget.Material3.Button.OutlinedButton"
                 android:layout_width="0dp" android:layout_weight="1" android:layout_height="46dp"
@@ -131,11 +125,14 @@
             android:orientation="horizontal" android:gravity="center_vertical"
             android:paddingTop="20dp" android:paddingBottom="4dp">
             <TextView style="@style/Section"
-                android:layout_width="0dp" android:layout_weight="1"
+                android:layout_width="wrap_content"
                 android:text="Ссылки" />
+            <!-- Счётчик ужимается сам: заголовок не должен разрываться. -->
             <TextView
                 android:id="@+id/tv_adm_links_count"
-                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_width="0dp" android:layout_weight="1"
+                android:layout_height="wrap_content"
+                android:gravity="end" android:paddingStart="10dp"
                 android:text="" android:textSize="12sp" android:fontFamily="monospace"
                 android:textColor="?attr/colorOnSurfaceVariant" />
         </LinearLayout>
@@ -144,29 +141,10 @@
             android:layout_width="match_parent" android:layout_height="wrap_content"
             android:orientation="vertical" />
 
-        <!-- Пользователи -->
-        <LinearLayout
-            android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:orientation="horizontal" android:gravity="center_vertical"
-            android:paddingTop="20dp" android:paddingBottom="4dp">
-            <TextView style="@style/Section"
-                android:layout_width="0dp" android:layout_weight="1"
-                android:text="Пользователи" />
-            <TextView
-                android:id="@+id/tv_adm_users_count"
-                android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="" android:textSize="12sp" android:fontFamily="monospace"
-                android:textColor="?attr/colorOnSurfaceVariant" />
-        </LinearLayout>
-        <LinearLayout
-            android:id="@+id/box_admin_users"
-            android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:orientation="vertical" />
-
         <TextView
             android:layout_width="match_parent" android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
-            android:text="Данные читаются с сервера по SSH (ручка /admin), обновление каждые 5 секунд. Трафик за всё время хранится на сервере и переживает перезапуск."
+            android:text="Доступ к серверу даёт только ссылка из этого списка: удалили — подключиться по ней уже нельзя. Данные читаются по SSH (ручка /admin) каждые 5 секунд; трафик и привязки хранятся на сервере и переживают перезапуск."
             android:textSize="11sp" android:textColor="?attr/colorOnSurfaceVariant" />
 
     </LinearLayout>

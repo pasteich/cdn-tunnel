@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -181,146 +182,6 @@ func TestBulkTransfer(t *testing.T) {
 	}
 }
 
-// TestUserLimit: сервер с лимитом -users пускает ровно N клиентов, следующему
-// отвечает 429, а после /bye освободившийся слот достаётся новому клиенту.
-func TestUserLimit(t *testing.T) {
-	gate := newUserGate(2)
-	mux := http.NewServeMux()
-	mux.HandleFunc("/hello", handleHello)
-	mux.HandleFunc("/bye", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
-	srv := httptest.NewServer(gate.middleware(mux))
-	defer srv.Close()
-
-	gauge := ""
-	hello := func(id string) int {
-		req, _ := http.NewRequest(http.MethodPost, srv.URL+"/hello", nil)
-		req.Header.Set(clientHeader, id)
-		resp, err := srv.Client().Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
-		gauge = resp.Header.Get(usersHeader) // «занято/лимит» для живого счётчика
-		return resp.StatusCode
-	}
-
-	for _, id := range []string{"c1", "c2"} {
-		if got := hello(id); got != http.StatusOK {
-			t.Fatalf("клиент %s: статус %d, ожидался 200", id, got)
-		}
-	}
-	// Повторные запросы уже пущенных клиентов слот не тратят.
-	if got := hello("c1"); got != http.StatusOK {
-		t.Fatalf("повторный запрос c1: статус %d, ожидался 200", got)
-	}
-	if got := hello("c3"); got != http.StatusTooManyRequests {
-		t.Fatalf("третий клиент: статус %d, ожидался 429", got)
-	}
-	if gauge != "2/2" {
-		t.Fatalf("заголовок %s = %q, ожидался \"2/2\"", usersHeader, gauge)
-	}
-
-	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/bye", nil)
-	req.Header.Set(clientHeader, "c2")
-	resp, err := srv.Client().Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp.Body.Close()
-
-	if got := hello("c3"); got != http.StatusOK {
-		t.Fatalf("после освобождения слота: статус %d, ожидался 200", got)
-	}
-	if gauge != "2/2" {
-		t.Fatalf("заголовок %s = %q после повторного захвата слота", usersHeader, gauge)
-	}
-}
-
-// TestNoteUsers: клиент разбирает заголовок X-Tunnel-Users в счётчик.
-func TestNoteUsers(t *testing.T) {
-	usersMu.Lock()
-	usersNow, usersLimit, usersKnown = 0, 0, false
-	usersMu.Unlock()
-	noteUsers("3/5")
-	if n, lim := usersSnapshot(); n != 3 || lim != 5 {
-		t.Fatalf("после \"3/5\" получили %d/%d", n, lim)
-	}
-	noteUsers("мусор")
-	if n, lim := usersSnapshot(); n != 3 || lim != 5 {
-		t.Fatalf("мусорный заголовок сбил счётчик: %d/%d", n, lim)
-	}
-}
-
-// TestUserSeatExpires: слот протухшего клиента уходит следующему.
-func TestUserSeatExpires(t *testing.T) {
-	gate := newUserGate(1)
-	if ok, _ := gate.admit("old", "старый", "1.2.3.4"); !ok {
-		t.Fatal("первый клиент должен получить слот")
-	}
-	if ok, _ := gate.admit("new", "новый", "5.6.7.8"); ok {
-		t.Fatal("второй клиент должен быть отклонён, пока слот занят")
-	}
-	gate.mu.Lock()
-	gate.seats["old"].lastSeen = time.Now().Add(-seatTTL - time.Second)
-	gate.mu.Unlock()
-	if ok, _ := gate.admit("new", "новый", "5.6.7.8"); !ok {
-		t.Fatal("после истечения seatTTL слот должен освободиться")
-	}
-}
-
-// TestUserLimitE2E: два настоящих клиента против сервера с лимитом 1 —
-// первый проходит рукопожатие и видит счётчик 1/1, второму сервер отказывает,
-// после /bye первого слот достаётся второму.
-func TestUserLimitE2E(t *testing.T) {
-	st = &stats{}
-	serverMethod = "both"
-	clientMethod = "post"
-	usersMu.Lock()
-	usersNow, usersLimit, usersKnown = 0, 0, false
-	usersMu.Unlock()
-
-	ts := &tunnelServer{streams: map[string]*stream{}, udp: map[string]*udpSession{}}
-	mux := http.NewServeMux()
-	mux.HandleFunc("/hello", handleHello)
-	mux.HandleFunc("/bye", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
-	mux.HandleFunc("/t/connect", ts.handleConnect)
-	gate := newUserGate(1)
-	srv := httptest.NewUnstartedServer(gate.middleware(mux))
-	srv.EnableHTTP2 = true
-	srv.StartTLS()
-	defer srv.Close()
-
-	client := func(id string) *tunnelClient {
-		hc := &http.Client{Transport: authRoundTripper{base: srv.Client().Transport, id: id}}
-		return &tunnelClient{base: srv.URL, pool: []*http.Client{hc}}
-	}
-	a, b := client("клиент-A"), client("клиент-B")
-
-	if err := a.hello(); err != nil {
-		t.Fatalf("первый клиент не подключился: %v", err)
-	}
-	if n, lim := usersSnapshot(); n != 1 || lim != 1 {
-		t.Fatalf("счётчик после первого клиента: %d/%d, ожидался 1/1", n, lim)
-	}
-
-	err := b.hello()
-	if err == nil {
-		t.Fatal("второй клиент подключился, хотя лимит 1")
-	}
-	if !strings.Contains(err.Error(), "максимальное число подключений") {
-		t.Fatalf("ожидалась ошибка про лимит, получили: %v", err)
-	}
-
-	a.bye()
-	if err := b.hello(); err != nil {
-		t.Fatalf("после освобождения слота второй клиент не подключился: %v", err)
-	}
-	if n, lim := usersSnapshot(); n != 1 || lim != 1 {
-		t.Fatalf("счётчик после смены клиента: %d/%d, ожидался 1/1", n, lim)
-	}
-}
-
 // TestShareLinkRoundTrip: ссылка cdn:// разбирается обратно в те же параметры,
 // в глаза не читается и не поддаётся простому base64-декоду.
 func TestShareLinkRoundTrip(t *testing.T) {
@@ -360,59 +221,6 @@ func TestShareLinkRoundTrip(t *testing.T) {
 	}
 }
 
-// TestRosterOnlineOffline: сервер помнит клиентов по имени и показывает, кто
-// сейчас онлайн, а кто уже отключился.
-func TestRosterOnlineOffline(t *testing.T) {
-	st = &stats{}
-	gate := newUserGate(0) // без лимита — учёт всё равно ведётся
-	mux := http.NewServeMux()
-	mux.HandleFunc("/hello", handleHello)
-	mux.HandleFunc(usersPath, gate.handleUsers)
-	mux.HandleFunc("/bye", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
-	srv := httptest.NewServer(gate.middleware(mux))
-	defer srv.Close()
-
-	call := func(path, name string) *http.Response {
-		req, _ := http.NewRequest(http.MethodPost, srv.URL+path, nil)
-		req.Header.Set(clientHeader, "id-"+name)
-		req.Header.Set(nameHeader, url.QueryEscape(name))
-		resp, err := srv.Client().Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return resp
-	}
-	for _, n := range []string{"Дмитрий", "Артём"} {
-		resp := call("/hello", n)
-		io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
-	}
-	resp := call("/bye", "Артём")
-	io.Copy(io.Discard, resp.Body)
-	resp.Body.Close()
-
-	resp = call(usersPath, "Дмитрий")
-	var d usersDoc
-	body, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
-	if err := json.Unmarshal(body, &d); err != nil {
-		t.Fatalf("список пользователей не разобран: %v (%s)", err, body)
-	}
-	if d.Online != 1 {
-		t.Fatalf("онлайн %d, ожидался 1: %s", d.Online, body)
-	}
-	got := map[string]bool{}
-	for _, u := range d.Users {
-		got[u.Name] = u.Online
-	}
-	if !got["Дмитрий"] {
-		t.Fatalf("Дмитрий должен быть онлайн: %s", body)
-	}
-	if online, ok := got["Артём"]; !ok || online {
-		t.Fatalf("Артём должен остаться в списке как офлайн: %s", body)
-	}
-}
-
 // TestLinkCred: удостоверение ссылки проверяется мастер-секретом сервера и не
 // принимается чужим секретом.
 func TestLinkCred(t *testing.T) {
@@ -432,242 +240,417 @@ func TestLinkCred(t *testing.T) {
 	}
 }
 
-// TestLinkBoundToDevice: ссылка закрепляется за первым устройством, второму
-// сервер отвечает 409 «уже использована», а своему устройству — как обычно.
-func TestLinkBoundToDevice(t *testing.T) {
-	st = &stats{}
-	authToken = "мастер"
-	defer func() { authToken = "" }()
-	cred := issueCred(authToken)
+// ---- доступ по ссылке ----
+//
+// Ниже проверяется главное свойство новой модели: пускает не подпись, а запись
+// в реестре. Ссылка без записи (удалённая владельцем) мертва навсегда, сколько
+// бы раз клиент ни переподключался.
 
-	gate := newUserGate(0)
+// linkServer поднимает сервер с реестром и возвращает его вместе с gate.
+func linkServer(t *testing.T) (*httptest.Server, *linkGate) {
+	t.Helper()
+	st = &stats{}
+	gate := newLinkGate()
+	ts := &tunnelServer{streams: map[string]*stream{}, udp: map[string]*udpSession{}, gate: gate}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/hello", handleHello)
-	srv := httptest.NewServer(authMiddleware(gate.middleware(mux)))
-	defer srv.Close()
+	mux.HandleFunc("/bye", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+	gate.routeAdmin(mux, ts)
+	srv := httptest.NewServer(gate.middleware(mux))
+	t.Cleanup(srv.Close)
+	return srv, gate
+}
 
-	call := func(cred, device, name string) int {
-		req, _ := http.NewRequest(http.MethodPost, srv.URL+"/hello", nil)
-		req.Header.Set(linkHeader, cred)
-		req.Header.Set(deviceHeader, device)
-		req.Header.Set(nameHeader, url.QueryEscape(name))
-		resp, err := srv.Client().Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
-		return resp.StatusCode
+// hello стучится в сервер удостоверением ссылки с заданного устройства.
+func hello(t *testing.T, srv *httptest.Server, cred, device string) int {
+	t.Helper()
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/hello", nil)
+	req.Header.Set(linkHeader, cred)
+	req.Header.Set(deviceHeader, device)
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+	return resp.StatusCode
+}
+
+// adminCall зовёт ручку панели мастер-ключом (или без него, если pass=false).
+func adminCall(t *testing.T, srv *httptest.Server, path string, pass bool) (int, string) {
+	t.Helper()
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+path, nil)
+	if pass {
+		req.Header.Set(authHeader, authToken)
+	}
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	return resp.StatusCode, string(b)
+}
+
+// newLink выпускает ссылку через панель и возвращает её id и удостоверение.
+func newLink(t *testing.T, srv *httptest.Server, label string) (id, cred string) {
+	t.Helper()
+	_, body := adminCall(t, srv, adminPath+"/link/new?label="+url.QueryEscape(label), true)
+	var m map[string]any
+	if err := json.Unmarshal([]byte(body), &m); err != nil {
+		t.Fatalf("link/new: %v (%s)", err, body)
+	}
+	id, _ = m["id"].(string)
+	cred, _ = m["cred"].(string)
+	if id == "" || cred == "" {
+		t.Fatalf("сервер не выпустил ссылку: %s", body)
+	}
+	return id, cred
+}
+
+// TestLinkRegistryIsAuthoritative: реестр — последнее слово. Подписанная, но
+// не зарегистрированная ссылка не пускает, и «вне админки» из неё не заводится.
+func TestLinkRegistryIsAuthoritative(t *testing.T) {
+	authToken = "мастер"
+	defer func() { authToken = "" }()
+	srv, gate := linkServer(t)
+
+	// Удостоверение с верной подписью, но выпущенное мимо реестра (-share).
+	stray := issueCred(authToken)
+	if got := hello(t, srv, stray, "чужой-телефон"); got != http.StatusForbidden {
+		t.Fatalf("незарегистрированная ссылка: статус %d, ожидался 403", got)
+	}
+	if n := len(gate.links); n != 0 {
+		t.Fatalf("в реестре завелось %d записей — ссылка не должна регистрироваться сама", n)
 	}
 
-	if got := call(cred, "устройство-1", "Андрей"); got != http.StatusOK {
-		t.Fatalf("первое устройство: статус %d, ожидался 200", got)
-	}
-	if got := call(cred, "устройство-2", "Артём"); got != http.StatusConflict {
-		t.Fatalf("чужое устройство: статус %d, ожидался 409", got)
-	}
-	if got := call(cred, "устройство-1", "Андрей"); got != http.StatusOK {
-		t.Fatalf("своё устройство после отказа чужому: статус %d, ожидался 200", got)
-	}
-	// Другая ссылка того же сервера привязывается к своему устройству свободно.
-	if got := call(issueCred(authToken), "устройство-2", "Артём"); got != http.StatusOK {
-		t.Fatalf("новая ссылка на втором устройстве: статус %d, ожидался 200", got)
-	}
-	// Подделка не проходит проверку подписи вовсе.
-	if got := call("deadbeef.00000000000000000000000000000000", "устройство-3", "Чужой"); got != http.StatusForbidden {
+	// Подделка с неверной подписью — тоже мимо.
+	if got := hello(t, srv, "deadbeef.00000000000000000000000000000000", "х"); got != http.StatusForbidden {
 		t.Fatalf("поддельная ссылка: статус %d, ожидался 403", got)
 	}
 }
 
-// TestAdminActions: бан, кик, снятие привязки и смена лимита на ходу — и всё
-// это только с мастер-паролем.
-func TestAdminActions(t *testing.T) {
-	st = &stats{}
+// TestDeletedLinkStaysDead: ссылка, удалённая владельцем в панели, не пускает
+// ни сразу, ни после переподключения, и обратно в реестре не появляется.
+func TestDeletedLinkStaysDead(t *testing.T) {
 	authToken = "мастер"
 	defer func() { authToken = "" }()
+	srv, gate := linkServer(t)
 
-	gate := newUserGate(2)
-	ts := &tunnelServer{streams: map[string]*stream{}, udp: map[string]*udpSession{}, gate: gate}
-	mux := http.NewServeMux()
-	mux.HandleFunc("/hello", handleHello)
-	mux.HandleFunc(usersPath, gate.handleUsers)
-	gate.routeAdmin(mux, ts)
-	srv := httptest.NewServer(authMiddleware(gate.middleware(mux)))
-	defer srv.Close()
-
-	hello := func(name string) int {
-		req, _ := http.NewRequest(http.MethodPost, srv.URL+"/hello", nil)
-		req.Header.Set(authHeader, authToken)
-		req.Header.Set(nameHeader, url.QueryEscape(name))
-		resp, err := srv.Client().Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
-		return resp.StatusCode
-	}
-	admin := func(path string, withPass bool) (int, string) {
-		req, _ := http.NewRequest(http.MethodGet, srv.URL+path, nil)
-		if withPass {
-			req.Header.Set(authHeader, authToken)
-		}
-		resp, err := srv.Client().Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		b, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		return resp.StatusCode, string(b)
+	id, cred := newLink(t, srv, "Андрею")
+	if got := hello(t, srv, cred, "телефон-андрея"); got != http.StatusOK {
+		t.Fatalf("свежая ссылка: статус %d, ожидался 200", got)
 	}
 
-	if got := hello("Дмитрий"); got != http.StatusOK {
-		t.Fatalf("hello: %d", got)
+	adminCall(t, srv, adminPath+"/link/delete?id="+id, true)
+
+	// Клиент ретраится — и получает отказ на каждой попытке.
+	for i := 0; i < 3; i++ {
+		if got := hello(t, srv, cred, "телефон-андрея"); got != http.StatusForbidden {
+			t.Fatalf("попытка %d после удаления: статус %d, ожидался 403", i+1, got)
+		}
 	}
-	if code, _ := admin(adminPath, false); code != http.StatusForbidden {
-		t.Fatalf("админка без пароля: %d, ожидался 403", code)
+	if n := len(gate.links); n != 0 {
+		t.Fatalf("удалённая ссылка вернулась в реестр (%d записей)", n)
 	}
-	code, body := admin(adminPath, true)
-	if code != http.StatusOK || !strings.Contains(body, "Дмитрий") {
-		t.Fatalf("снимок админки: %d %s", code, body)
+	// И на линии её больше нет.
+	if n := len(gate.live); n != 0 {
+		t.Fatalf("удалённая ссылка осталась на линии (%d)", n)
 	}
-	if _, b := admin(adminPath+"/ban?name="+url.QueryEscape("Дмитрий"), true); !strings.Contains(b, `"ok":true`) {
-		t.Fatalf("бан не применился: %s", b)
-	}
-	if got := hello("Дмитрий"); got != http.StatusForbidden {
-		t.Fatalf("забаненный клиент: %d, ожидался 403", got)
-	}
-	if _, b := admin(adminPath+"/unban?name="+url.QueryEscape("Дмитрий"), true); !strings.Contains(b, `"ok":true`) {
-		t.Fatalf("разбан не применился: %s", b)
-	}
-	if got := hello("Дмитрий"); got != http.StatusOK {
-		t.Fatalf("после разбана: %d, ожидался 200", got)
-	}
-	if _, b := admin(adminPath+"/limit?n=7", true); !strings.Contains(b, `"limit":7`) {
-		t.Fatalf("лимит не сменился: %s", b)
-	}
-	if g := gate.gauge(); !strings.HasSuffix(g, "/7") {
-		t.Fatalf("счётчик показывает %q, ожидался лимит 7", g)
-	}
-	if _, b := admin(adminPath+"/forget?name="+url.QueryEscape("Дмитрий"), true); !strings.Contains(b, `"ok":true`) {
-		t.Fatalf("forget не сработал: %s", b)
+	_, body := adminCall(t, srv, adminPath, true)
+	if strings.Contains(body, "вне админки") {
+		t.Fatalf("в панели появилась ссылка «вне админки»: %s", body)
 	}
 }
 
-// TestLinkRegistry: ссылки выпускает сервер — они видны в админке ещё до
-// использования, привязываются к устройству, отзываются и возвращаются.
-func TestLinkRegistry(t *testing.T) {
-	st = &stats{}
+// TestLinkRevokeRestore: отзыв закрывает доступ, возврат открывает снова, а
+// счётчики и запись при этом никуда не деваются.
+func TestLinkRevokeRestore(t *testing.T) {
 	authToken = "мастер"
 	defer func() { authToken = "" }()
+	srv, _ := linkServer(t)
 
-	gate := newUserGate(0)
-	ts := &tunnelServer{streams: map[string]*stream{}, udp: map[string]*udpSession{}, gate: gate}
-	mux := http.NewServeMux()
-	mux.HandleFunc("/hello", handleHello)
-	gate.routeAdmin(mux, ts)
-	srv := httptest.NewServer(authMiddleware(gate.middleware(mux)))
-	defer srv.Close()
-
-	adminJSON := func(path string) map[string]any {
-		req, _ := http.NewRequest(http.MethodGet, srv.URL+path, nil)
-		req.Header.Set(authHeader, authToken)
-		resp, err := srv.Client().Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer resp.Body.Close()
-		var m map[string]any
-		if err := json.NewDecoder(resp.Body).Decode(&m); err != nil {
-			t.Fatalf("%s: %v", path, err)
-		}
-		return m
+	id, cred := newLink(t, srv, "Андрею")
+	if got := hello(t, srv, cred, "телефон"); got != http.StatusOK {
+		t.Fatalf("до отзыва: %d", got)
 	}
-	hello := func(cred, device string) int {
-		req, _ := http.NewRequest(http.MethodPost, srv.URL+"/hello", nil)
-		req.Header.Set(linkHeader, cred)
-		req.Header.Set(deviceHeader, device)
-		req.Header.Set(nameHeader, url.QueryEscape("Андрей"))
-		resp, err := srv.Client().Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
-		return resp.StatusCode
-	}
-
-	made := adminJSON("/admin/link/new?label=" + url.QueryEscape("Андрею"))
-	id, _ := made["id"].(string)
-	cred, _ := made["cred"].(string)
-	if id == "" || cred == "" {
-		t.Fatalf("сервер не выпустил ссылку: %v", made)
-	}
-
-	// Ещё не использованная ссылка уже видна владельцу.
-	doc := adminJSON(adminPath)
-	links, _ := doc["links"].([]any)
-	if len(links) != 1 {
-		t.Fatalf("в реестре %d ссылок, ожидалась 1: %v", len(links), doc["links"])
-	}
-	first, _ := links[0].(map[string]any)
-	if first["label"] != "Андрею" || first["device"] != nil {
-		t.Fatalf("неожиданная запись о ссылке: %v", first)
-	}
-
-	if got := hello(cred, "телефон-андрея"); got != http.StatusOK {
-		t.Fatalf("первое устройство: %d", got)
-	}
-	if got := hello(cred, "чужой-телефон"); got != http.StatusConflict {
-		t.Fatalf("чужое устройство: %d, ожидался 409", got)
-	}
-
-	// Отзыв — клиент больше не заходит; возврат — снова заходит.
-	adminJSON("/admin/link/revoke?id=" + id)
-	if got := hello(cred, "телефон-андрея"); got != http.StatusForbidden {
+	adminCall(t, srv, adminPath+"/link/revoke?id="+id, true)
+	if got := hello(t, srv, cred, "телефон"); got != http.StatusForbidden {
 		t.Fatalf("после отзыва: %d, ожидался 403", got)
 	}
-	adminJSON("/admin/link/restore?id=" + id)
-	if got := hello(cred, "телефон-андрея"); got != http.StatusOK {
+	adminCall(t, srv, adminPath+"/link/restore?id="+id, true)
+	if got := hello(t, srv, cred, "телефон"); got != http.StatusOK {
 		t.Fatalf("после возврата: %d, ожидался 200", got)
 	}
+}
 
-	// Отвязали — можно зайти с другого устройства.
-	adminJSON("/admin/link/unbind?id=" + id)
-	if got := hello(cred, "новый-телефон"); got != http.StatusOK {
+// TestLinkBoundToOneDevice: ссылка работает на одном устройстве; «Отвязать»
+// освобождает её для другого.
+func TestLinkBoundToOneDevice(t *testing.T) {
+	authToken = "мастер"
+	defer func() { authToken = "" }()
+	srv, _ := linkServer(t)
+
+	id, cred := newLink(t, srv, "Андрею")
+	if got := hello(t, srv, cred, "телефон-1"); got != http.StatusOK {
+		t.Fatalf("первое устройство: %d", got)
+	}
+	if got := hello(t, srv, cred, "телефон-2"); got != http.StatusConflict {
+		t.Fatalf("второе устройство: %d, ожидался 409", got)
+	}
+	if got := hello(t, srv, cred, "телефон-1"); got != http.StatusOK {
+		t.Fatalf("своё устройство после отказа чужому: %d", got)
+	}
+
+	adminCall(t, srv, adminPath+"/link/unbind?id="+id, true)
+	if got := hello(t, srv, cred, "телефон-2"); got != http.StatusOK {
 		t.Fatalf("после отвязки: %d, ожидался 200", got)
 	}
 
-	// Удаление убирает запись целиком, но ссылка заново регистрируется при
-	// использовании — и это видно владельцу.
-	adminJSON("/admin/link/delete?id=" + id)
-	doc = adminJSON(adminPath)
-	if links, _ := doc["links"].([]any); len(links) != 0 {
-		t.Fatalf("после удаления в реестре %d ссылок", len(links))
+	// Вторая ссылка привязывается к своему устройству независимо от первой.
+	_, cred2 := newLink(t, srv, "Артёму")
+	if got := hello(t, srv, cred2, "телефон-3"); got != http.StatusOK {
+		t.Fatalf("вторая ссылка: %d", got)
 	}
 }
 
-// TestUsersEndpointHidesTraffic: клиентам туннеля видно, кто онлайн, но не
-// чужой трафик и адреса — это только для владельца в /admin.
-func TestUsersEndpointHidesTraffic(t *testing.T) {
-	st = &stats{}
-	gate := newUserGate(0)
-	gate.roster["Андрей"] = &rosterEntry{Name: "Андрей", Up: 1000, Down: 2000, Last: time.Now().Unix()}
-	mux := http.NewServeMux()
-	mux.HandleFunc(usersPath, gate.handleUsers)
-	srv := httptest.NewServer(gate.middleware(mux))
-	defer srv.Close()
+// TestAdminNeedsMasterKey: панель открывается только мастер-ключом — ссылкой,
+// даже совершенно рабочей, в неё не войти.
+func TestAdminNeedsMasterKey(t *testing.T) {
+	authToken = "мастер"
+	defer func() { authToken = "" }()
+	srv, _ := linkServer(t)
+	_, cred := newLink(t, srv, "Андрею")
 
-	resp, err := srv.Client().Get(srv.URL + usersPath)
+	if code, _ := adminCall(t, srv, adminPath, false); code != http.StatusForbidden {
+		t.Fatalf("панель без ключа: %d, ожидался 403", code)
+	}
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+adminPath, nil)
+	req.Header.Set(linkHeader, cred)
+	resp, err := srv.Client().Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
-	body, _ := io.ReadAll(resp.Body)
+	io.Copy(io.Discard, resp.Body)
 	resp.Body.Close()
-	if strings.Contains(string(body), "1000") || strings.Contains(string(body), "2000") {
-		t.Fatalf("/users отдаёт чужой трафик: %s", body)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("панель по ссылке: %d, ожидался 403", resp.StatusCode)
 	}
-	if !strings.Contains(string(body), "Андрей") {
-		t.Fatalf("/users не показывает состав: %s", body)
+	if code, body := adminCall(t, srv, adminPath, true); code != http.StatusOK || !strings.Contains(body, "Андрею") {
+		t.Fatalf("панель с ключом: %d %s", code, body)
+	}
+}
+
+// TestOwnerUsesMasterKey: владелец подключается напрямую мастер-ключом, без
+// ссылки и без привязки к устройству.
+func TestOwnerUsesMasterKey(t *testing.T) {
+	authToken = "мастер"
+	defer func() { authToken = "" }()
+	srv, gate := linkServer(t)
+
+	call := func(key string) int {
+		req, _ := http.NewRequest(http.MethodPost, srv.URL+"/hello", nil)
+		req.Header.Set(authHeader, key)
+		resp, err := srv.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	if got := call("мастер"); got != http.StatusOK {
+		t.Fatalf("владелец: %d", got)
+	}
+	if got := call("не-мастер"); got != http.StatusForbidden {
+		t.Fatalf("неверный ключ: %d, ожидался 403", got)
+	}
+	// Владелец на линии есть, но ссылкой не притворяется.
+	if _, ok := gate.live[ownerKey]; !ok {
+		t.Fatal("владелец не учтён на линии")
+	}
+	if n := len(gate.links); n != 0 {
+		t.Fatalf("вход владельца завёл %d ссылок", n)
+	}
+}
+
+// TestLinkGoesOfflineOnBye: /bye снимает ссылку с линии сразу, не дожидаясь
+// linkTTL, — панель не показывает ушедшего клиента как онлайн.
+func TestLinkGoesOfflineOnBye(t *testing.T) {
+	authToken = "мастер"
+	defer func() { authToken = "" }()
+	srv, gate := linkServer(t)
+
+	id, cred := newLink(t, srv, "Андрею")
+	hello(t, srv, cred, "телефон")
+	if _, ok := gate.live[id]; !ok {
+		t.Fatal("ссылка не появилась на линии")
+	}
+
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/bye", nil)
+	req.Header.Set(linkHeader, cred)
+	req.Header.Set(deviceHeader, "телефон")
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if _, ok := gate.live[id]; ok {
+		t.Fatal("после /bye ссылка осталась на линии")
+	}
+}
+
+// TestLinkExpires: замолчавшая ссылка уходит с линии сама через linkTTL.
+func TestLinkExpires(t *testing.T) {
+	authToken = "мастер"
+	defer func() { authToken = "" }()
+	srv, gate := linkServer(t)
+
+	id, cred := newLink(t, srv, "Андрею")
+	hello(t, srv, cred, "телефон")
+
+	gate.mu.Lock()
+	gate.live[id].last = time.Now().Add(-linkTTL - time.Second)
+	gate.mu.Unlock()
+
+	gate.mu.Lock()
+	gate.expireLocked(time.Now())
+	_, still := gate.live[id]
+	gate.mu.Unlock()
+	if still {
+		t.Fatal("протухшая ссылка осталась на линии")
+	}
+}
+
+// TestLinkTrafficAccounting: трафик пишется на ту ссылку, по которой шёл, и
+// переживает перезапуск через файл реестра.
+func TestLinkTrafficAccounting(t *testing.T) {
+	authToken = "мастер"
+	defer func() { authToken = "" }()
+	srv, gate := linkServer(t)
+
+	id, cred := newLink(t, srv, "Андрею")
+	hello(t, srv, cred, "телефон")
+	gate.addTraffic(id, 1000, 2000)
+	gate.addTraffic(ownerKey, 500, 500) // трафик владельца ссылке не приписывается
+
+	dir := t.TempDir()
+	gate.mu.Lock()
+	gate.path = dir + "/links.json"
+	gate.saveLocked()
+	gate.mu.Unlock()
+
+	restored := newLinkGate()
+	restored.loadLinks(dir + "/links.json")
+	rec := restored.links[id]
+	if rec == nil {
+		t.Fatal("ссылка не пережила перезапуск")
+	}
+	if rec.Up != 1000 || rec.Down != 2000 {
+		t.Fatalf("счётчики после перезапуска: ↑%d ↓%d, ожидалось ↑1000 ↓2000", rec.Up, rec.Down)
+	}
+	if rec.Device != "телефон" {
+		t.Fatalf("привязка не сохранилась: %q", rec.Device)
+	}
+}
+
+// TestDenyReason: клиент правильно переводит отказ сервера в STATUS-строку —
+// по ней Android-обёртка решает, гасить ли VPN и что показать человеку.
+func TestDenyReason(t *testing.T) {
+	cases := []struct {
+		name   string
+		code   int
+		body   string
+		cred   string // непустой — клиент подключается по ссылке
+		status string
+		bad    bool
+	}{
+		{"удалённая ссылка", http.StatusForbidden, denyUnknown, "id.mac", "linkgone", true},
+		{"отозванная ссылка", http.StatusForbidden, denyRevoked, "id.mac", "linkrevoked", true},
+		{"занятая ссылка", http.StatusConflict, denyUsed, "id.mac", "linkused", true},
+		{"чужой сервер", http.StatusForbidden, denyForbidden, "id.mac", "linkbad", true},
+		{"неверный мастер-ключ", http.StatusForbidden, denyForbidden, "", "authfail", true},
+		{"всё в порядке", http.StatusOK, "hello", "", "", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			linkCred = c.cred
+			defer func() { linkCred = "" }()
+			got, bad := denyReason(c.code, c.body)
+			if bad != c.bad {
+				t.Fatalf("отказ=%v, ожидался %v", bad, c.bad)
+			}
+			if bad && got.status != c.status {
+				t.Fatalf("STATUS %q, ожидался %q", got.status, c.status)
+			}
+			if bad && got.text == "" {
+				t.Fatal("человеку нечего показать: текст пуст")
+			}
+		})
+	}
+}
+
+// TestLegacyRegistryMigrates: реестр от сервера 1.x (users.json рядом)
+// подхватывается один раз — уже выданные друзьям ссылки продолжают работать,
+// но удалённая потом ссылка обратно не воскресает.
+func TestLegacyRegistryMigrates(t *testing.T) {
+	dir := t.TempDir()
+	legacy := `{"users":[{"name":"Андрей","up":10,"down":20}],` +
+		`"links":[{"id":"abc123","label":"Андрею","device":"телефон","up":1000,"down":2000}]}`
+	if err := os.WriteFile(dir+"/users.json", []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Пустой новый файл — ровно то, что оставляет openState при первом запуске.
+	if err := os.WriteFile(dir+"/links.json", nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	g := newLinkGate()
+	g.loadLinks(dir + "/links.json")
+	rec := g.links["abc123"]
+	if rec == nil {
+		t.Fatal("ссылка из старого реестра потерялась")
+	}
+	if rec.Label != "Андрею" || rec.Device != "телефон" || rec.Up != 1000 {
+		t.Fatalf("запись перенеслась неполно: %+v", rec)
+	}
+	nb, err := os.ReadFile(dir + "/links.json")
+	if err != nil || !strings.Contains(string(nb), "abc123") {
+		t.Fatalf("перенос не закреплён в новом файле: %v (%s)", err, nb)
+	}
+	// Старый файл отработал и больше не читается.
+	if _, err := os.Stat(dir + "/users.json"); !os.IsNotExist(err) {
+		t.Fatalf("старый реестр остался на месте: %v", err)
+	}
+
+	// Владелец удалил ссылку — после перезапуска она не должна воскреснуть.
+	g2 := newLinkGate()
+	g2.loadLinks(dir + "/links.json")
+	if !g2.deleteLink("abc123") {
+		t.Fatal("ссылка не удалилась")
+	}
+	g3 := newLinkGate()
+	g3.loadLinks(dir + "/links.json")
+	if g3.links["abc123"] != nil {
+		t.Fatal("удалённая ссылка воскресла из старого реестра")
+	}
+}
+
+// TestLegacyMigrationKeepsExisting: если новый реестр уже наполнен, перенос
+// ничего не ломает и не дублирует.
+func TestLegacyMigrationKeepsExisting(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(dir+"/users.json",
+		[]byte(`{"links":[{"id":"old1","label":"старая"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dir+"/links.json",
+		[]byte(`{"links":[{"id":"new1","label":"новая"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	g := newLinkGate()
+	g.loadLinks(dir + "/links.json")
+	if g.links["new1"] == nil || g.links["old1"] == nil {
+		t.Fatalf("после переноса в реестре %d записей, ожидалось 2", len(g.links))
 	}
 }
