@@ -22,3 +22,6 @@ android/app/src/main/assets/server/cdn-tunnel-arm64
 
 # Посторонняя сборка пакета (AUR), не часть проекта
 /xray-bin/
+
+# Готовый APK для раздачи (собирается: cd android && gradle :app:assembleDebug)
+/dist/
