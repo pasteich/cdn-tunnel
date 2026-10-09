@@ -36,7 +36,9 @@ public class MainActivity extends AppCompatActivity implements TunState.Listener
     private TextInputEditText etIp, etHost, etPassword, etPort, etConns, etDns, etMtu;
     private TextInputEditText etLink;
     private MaterialSwitch swUdp, swBlockAaaa, swDebug;
-    private MaterialAutoCompleteTextView ddMethod, ddTransport;
+    private MaterialAutoCompleteTextView ddMethod, ddTransport, ddAppsMode;
+    private MaterialButton btnApps;
+    private TextView tvAppsSummary;
     private MaterialSwitch swFastopen;
     private MaterialButton btnToggle, btnClear;
     private TextView tvStatus, tvStatusDetail, tvConn, tvLog, chevAdvanced, chevManual;
@@ -71,6 +73,10 @@ public class MainActivity extends AppCompatActivity implements TunState.Listener
         ddMethod.setSimpleItems(new String[]{"post", "get"});
         ddTransport = findViewById(R.id.dd_transport);
         ddTransport.setSimpleItems(new String[]{"chunked", "stream"});
+        ddAppsMode = findViewById(R.id.dd_apps_mode);
+        ddAppsMode.setSimpleItems(new String[]{"Все приложения", "Только выбранные", "Все кроме выбранных"});
+        btnApps = findViewById(R.id.btn_apps);
+        tvAppsSummary = findViewById(R.id.tv_apps_summary);
         swFastopen = findViewById(R.id.sw_fastopen);
         btnToggle = findViewById(R.id.btn_toggle);
         btnClear = findViewById(R.id.btn_clear);
@@ -141,6 +147,10 @@ public class MainActivity extends AppCompatActivity implements TunState.Listener
         btnUninstall.setOnClickListener(v -> uninstallServer());
         btnAdmin.setOnClickListener(v -> openAdmin());
         btnGenKey.setOnClickListener(v -> etServerPass.setText(randomKey()));
+        btnApps.setOnClickListener(v -> startActivity(
+                new Intent(this, AppsActivity.class).putExtra("mode", appsModeCode())));
+        ddAppsMode.setOnItemClickListener((p, v, pos, id) -> save());
+        updateAppsSummary();
         btnImport.setOnClickListener(v -> importLink(etLink.getText() == null ? "" : etLink.getText().toString()));
         btnPaste.setOnClickListener(v -> pasteLink());
         btnWipe.setOnClickListener(v -> wipeAll());
@@ -164,6 +174,7 @@ public class MainActivity extends AppCompatActivity implements TunState.Listener
         onPhase(TunState.phase(), TunState.phaseDetail());
         onRunningChanged(TunState.isRunning());
         renderStats(TunState.stats());
+        updateAppsSummary();
     }
 
     @Override protected void onPause() {
@@ -188,6 +199,7 @@ public class MainActivity extends AppCompatActivity implements TunState.Listener
         ddMethod.setText("get".equalsIgnoreCase(c.method) ? "get" : "post", false);
         ddTransport.setText("stream".equalsIgnoreCase(c.transport) ? "stream" : "chunked", false);
         swFastopen.setChecked(c.fastopen);
+        ddAppsMode.setText(appsModeLabel(c.appsMode), false);
         etSshHost.setText(c.sshHost);
         renderProfile(c);
         etSshPort.setText(String.valueOf(c.sshPort));
@@ -220,6 +232,7 @@ public class MainActivity extends AppCompatActivity implements TunState.Listener
         c.method = ddMethod.getText() != null && ddMethod.getText().toString().trim().equalsIgnoreCase("get") ? "get" : "post";
         c.transport = ddTransport.getText() != null && ddTransport.getText().toString().trim().equalsIgnoreCase("stream") ? "stream" : "chunked";
         c.fastopen = swFastopen.isChecked();
+        c.appsMode = appsModeCode();
         c.sshHost = etSshHost.getText() == null ? "" : etSshHost.getText().toString().trim();
         c.sshPort = intOf(etSshPort, c.sshPort);
         c.sshUser = txt(etSshUser, c.sshUser);
@@ -467,6 +480,40 @@ public class MainActivity extends AppCompatActivity implements TunState.Listener
     }
 
     private int dp(int v) { return Math.round(getResources().getDisplayMetrics().density * v); }
+
+    // ---------- раздельная маршрутизация ----------
+
+    private static String appsModeLabel(String code) {
+        if ("allow".equals(code)) return "Только выбранные";
+        if ("deny".equals(code)) return "Все кроме выбранных";
+        return "Все приложения";
+    }
+
+    /** Текущий режим из выпадающего списка: all | allow | deny. */
+    private String appsModeCode() {
+        CharSequence t = ddAppsMode == null ? null : ddAppsMode.getText();
+        if (t == null) return "all";
+        if (t.toString().startsWith("Только")) return "allow";
+        if (t.toString().startsWith("Все кроме")) return "deny";
+        return "all";
+    }
+
+    /** Строка «Выбрано: N» под выпадающим списком. */
+    private void updateAppsSummary() {
+        if (tvAppsSummary == null) return;
+        Config c = Config.load(this);
+        int n = c.apps == null ? 0 : c.apps.size();
+        String mode = appsModeCode();
+        String s;
+        if (n == 0) {
+            s = "allow".equals(mode)
+                    ? "Ничего не выбрано — в VPN не пойдёт ни одно приложение"
+                    : "Список пуст — через VPN пойдёт весь телефон";
+        } else {
+            s = ("allow".equals(mode) ? "Выбрано: " : "Исключено: ") + n;
+        }
+        tvAppsSummary.setText(s);
+    }
 
     private void toast(String s) { Toast.makeText(this, s, Toast.LENGTH_SHORT).show(); }
 

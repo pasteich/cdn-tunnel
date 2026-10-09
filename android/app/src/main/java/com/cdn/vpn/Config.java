@@ -25,6 +25,13 @@ public class Config {
     public boolean blockAAAA = true;
     public boolean debug = false;
 
+    // --- раздельная маршрутизация приложений ---
+    // all  : в VPN идут все приложения (кроме самого приложения и deny-списка)
+    // allow: в VPN идут только отмеченные
+    // deny : все, кроме отмеченных (чёрный список)
+    public String appsMode = "all";
+    public java.util.Set<String> apps = new java.util.HashSet<>();
+
     // --- деплой серверной части по SSH (вкладка «Сервер») ---
     public String sshHost = "";
     public int sshPort = 22;
@@ -58,6 +65,8 @@ public class Config {
         c.mtu = p.getInt("mtu", c.mtu);
         c.blockAAAA = p.getBoolean("blockAAAA", c.blockAAAA);
         c.debug = p.getBoolean("debug", c.debug);
+        c.appsMode = p.getString("appsMode", c.appsMode);
+        c.apps = new java.util.HashSet<>(p.getStringSet("apps", new java.util.HashSet<>()));
         c.sshHost = p.getString("sshHost", c.sshHost);
         c.sshPort = p.getInt("sshPort", c.sshPort);
         c.sshUser = p.getString("sshUser", c.sshUser);
@@ -89,6 +98,8 @@ public class Config {
         e.putInt("mtu", mtu);
         e.putBoolean("blockAAAA", blockAAAA);
         e.putBoolean("debug", debug);
+        e.putString("appsMode", appsMode);
+        e.putStringSet("apps", new java.util.HashSet<>(apps));
         e.putString("sshHost", sshHost);
         e.putInt("sshPort", sshPort);
         e.putString("sshUser", sshUser);
@@ -123,6 +134,8 @@ public class Config {
         i.putExtra("mtu", mtu);
         i.putExtra("blockAAAA", blockAAAA);
         i.putExtra("debug", debug);
+        i.putExtra("appsMode", appsMode);
+        i.putExtra("apps", apps.toArray(new String[0]));
     }
 
     public static Config fromIntent(Intent i) {
@@ -141,6 +154,12 @@ public class Config {
         c.mtu = i.getIntExtra("mtu", c.mtu);
         c.blockAAAA = i.getBooleanExtra("blockAAAA", c.blockAAAA);
         c.debug = i.getBooleanExtra("debug", c.debug);
+        if (i.hasExtra("appsMode")) c.appsMode = i.getStringExtra("appsMode");
+        if (i.hasExtra("apps")) {
+            String[] a = i.getStringArrayExtra("apps");
+            c.apps = new java.util.HashSet<>();
+            if (a != null) java.util.Collections.addAll(c.apps, a);
+        }
         return c;
     }
 }

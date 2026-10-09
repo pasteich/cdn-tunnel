@@ -119,12 +119,11 @@ public class TunVpnService extends VpnService {
             if (cfg.dns != null && !cfg.dns.isEmpty()) {
                 b.addDnsServer(cfg.dns);
             }
-            // Наш собственный трафик (клиент туннеля к CDN) должен идти в обход VPN.
-            try {
-                b.addDisallowedApplication(getPackageName());
-            } catch (Exception e) {
-                TunState.log("[svc] disallow self не удался: " + e.getMessage());
-            }
+            // Наш собственный трафик (клиент туннеля к CDN) должен идти в обход
+            // VPN, иначе петля. В режиме allow это выполняется само: в списке
+            // разрешённых наше приложение не окажется, а смешивать addAllowed и
+            // addDisallowed нельзя — Builder на это бросает исключение.
+            applyAppRouting(b, cfg);
             b.setBlocking(false);
 
             vpnPfd = b.establish();
@@ -150,6 +149,44 @@ public class TunVpnService extends VpnService {
             TunState.log("[svc] ОШИБКА: " + t);
             TunState.setPhase(TunState.ERROR, String.valueOf(t.getMessage()));
             stopEverything();
+        }
+    }
+
+    /**
+     * Раздельная маршрутизация приложений (выбор пользователя):
+     * allow — в VPN ходят только отмеченные приложения;
+     * deny  — все, кроме отмеченных (плюс всегда само приложение, иначе петля);
+     * all   — весь телефон, исключено только само приложение.
+     * Смешивать addAllowedApplication и addDisallowedApplication нельзя.
+     */
+    private void applyAppRouting(Builder b, Config cfg) {
+        String mode = cfg.appsMode == null ? "all" : cfg.appsMode;
+        java.util.Set<String> list = cfg.apps == null ? java.util.Collections.emptySet() : cfg.apps;
+        boolean allow = "allow".equals(mode);
+        boolean deny = "deny".equals(mode);
+        if (!allow && !deny) {
+            disallow(b, getPackageName());
+            return;
+        }
+        TunState.log("[svc] приложения: " + (allow ? "только выбранные (" : "все кроме выбранных (")
+                + list.size() + ")");
+        for (String pkg : list) {
+            if (pkg == null || pkg.isEmpty() || pkg.equals(getPackageName())) continue;
+            try {
+                if (allow) b.addAllowedApplication(pkg);
+                else b.addDisallowedApplication(pkg);
+            } catch (Throwable t) {
+                TunState.log("[svc] пропуск " + pkg + ": " + t.getMessage());
+            }
+        }
+        if (deny) disallow(b, getPackageName());
+    }
+
+    private void disallow(Builder b, String pkg) {
+        try {
+            b.addDisallowedApplication(pkg);
+        } catch (Throwable t) {
+            TunState.log("[svc] disallow " + pkg + " не удался: " + t.getMessage());
         }
     }
 

@@ -70,6 +70,50 @@
                         android:indeterminate="true"
                         android:visibility="gone"
                         app:trackCornerRadius="3dp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_toggle"
+                        android:layout_width="match_parent" android:layout_height="56dp"
+                        android:layout_marginTop="14dp"
+                        android:text="Запустить VPN"
+                        android:textSize="16sp" android:textStyle="bold"
+                        app:cornerRadius="14dp" />
+                </LinearLayout>
+
+                <!-- Раздельная маршрутизация приложений -->
+                <LinearLayout
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="vertical" android:background="@drawable/card_bg"
+                    android:padding="16dp" android:layout_marginBottom="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Приложения" android:textSize="16sp" android:textStyle="bold"
+                        android:textColor="?attr/colorOnSurface" />
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        style="@style/Field.Dropdown" android:hint="Кто ходит через VPN"
+                        android:layout_marginTop="8dp" android:layout_marginBottom="8dp">
+                        <com.google.android.material.textfield.MaterialAutoCompleteTextView
+                            android:id="@+id/dd_apps_mode"
+                            android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:inputType="none" android:text="Все приложения" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <TextView
+                        android:id="@+id/tv_apps_summary"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:text="Ничего не выбрано"
+                        android:textSize="12sp"
+                        android:textColor="?attr/colorOnSurfaceVariant"
+                        android:paddingBottom="8dp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_apps"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="match_parent" android:layout_height="48dp"
+                        android:text="Выбрать приложения"
+                        app:cornerRadius="14dp" />
                 </LinearLayout>
 
                 <TextView style="@style/Section" android:text="Ссылка" />
@@ -330,14 +374,6 @@
                     android:text="Стереть все настройки" android:textColor="@color/danger" />
 
                 </LinearLayout><!-- /box_manual -->
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btn_toggle"
-                    android:layout_width="match_parent" android:layout_height="56dp"
-                    android:layout_marginTop="18dp"
-                    android:text="Запустить VPN"
-                    android:textSize="16sp" android:textStyle="bold"
-                    app:cornerRadius="14dp" />
 
             </LinearLayout>
         </androidx.core.widget.NestedScrollView>

@@ -5,6 +5,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Список установленных приложений для раздельной маршрутизации -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 
     <application
         android:allowBackup="true"
@@ -36,6 +38,12 @@
             android:name=".AdminActivity"
             android:exported="false"
             android:label="Управление сервером"
+            android:parentActivityName=".MainActivity" />
+
+        <activity
+            android:name=".AppsActivity"
+            android:exported="false"
+            android:label="Приложения и VPN"
             android:parentActivityName=".MainActivity" />
 
         <service
